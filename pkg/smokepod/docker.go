@@ -42,8 +42,8 @@ func NewContainer(ctx context.Context, cfg ContainerConfig) (*Container, error) 
 	req := testcontainers.ContainerRequest{
 		Image:      cfg.Image,
 		Env:        cfg.Env,
-		WaitingFor: wait.ForLog("").WithStartupTimeout(0), // Start immediately
-		Cmd:        []string{"tail", "-f", "/dev/null"},   // Keep container running
+		WaitingFor: wait.ForExec([]string{"true"}), // Wait until container can execute commands
+		Cmd:        []string{"tail", "-f", "/dev/null"}, // Keep container running
 	}
 
 	// Add bind mounts using HostConfigModifier

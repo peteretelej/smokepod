@@ -2,21 +2,23 @@ package smokepod
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 )
 
-func dockerAvailable() bool {
-	cmd := exec.Command("docker", "info")
-	return cmd.Run() == nil
+func TestMain(m *testing.M) {
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL: docker is required - start Docker Desktop or Docker daemon to run tests")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
 }
 
 func TestNewContainer(t *testing.T) {
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -35,10 +37,6 @@ func TestNewContainer(t *testing.T) {
 }
 
 func TestContainer_Exec(t *testing.T) {
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -65,10 +63,6 @@ func TestContainer_Exec(t *testing.T) {
 }
 
 func TestContainer_ExecExitCode(t *testing.T) {
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -91,10 +85,6 @@ func TestContainer_ExecExitCode(t *testing.T) {
 }
 
 func TestContainer_Terminate(t *testing.T) {
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -112,10 +102,6 @@ func TestContainer_Terminate(t *testing.T) {
 }
 
 func TestContainer_ExecWithEnv(t *testing.T) {
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

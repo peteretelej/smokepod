@@ -2,6 +2,8 @@ package runners
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,9 +12,12 @@ import (
 	"github.com/peteretelej/smokepod/internal/testfile"
 )
 
-func dockerAvailable() bool {
-	cmd := exec.Command("docker", "info")
-	return cmd.Run() == nil
+func TestMain(m *testing.M) {
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL: docker is required - start Docker Desktop or Docker daemon to run tests")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
 }
 
 // testContainer wraps a real Docker container for testing.
@@ -25,9 +30,6 @@ type testContainer struct {
 
 func setupTestContainer(t *testing.T) (*testContainer, context.Context, context.CancelFunc) {
 	t.Helper()
-	if !dockerAvailable() {
-		t.Skip("docker not available")
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 
