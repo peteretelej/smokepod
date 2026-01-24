@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Keep in sync with .github/workflows/ci.yml
+GOLANGCI_LINT_VERSION="v2.8.0"
+
 echo "Running pre-push checks..."
 
 echo "==> Running tests..."
@@ -9,8 +12,9 @@ go test -race ./...
 echo "==> Running vet..."
 go vet ./...
 
-echo "==> Running lint..."
-go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run
+echo "==> Running lint (golangci-lint $GOLANGCI_LINT_VERSION)..."
+# v2 uses different module path
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$GOLANGCI_LINT_VERSION run
 
 echo "==> Building..."
 go build ./cmd/smokepod

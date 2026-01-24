@@ -69,7 +69,7 @@ func Parse(path string) (*TestFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening test file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	tf := &TestFile{
 		Sections: make(map[string]*Section),

@@ -136,7 +136,7 @@ func runAction(c *cli.Context) error {
 		if err != nil {
 			return cli.Exit(fmt.Sprintf("Error creating output file: %v", err), exitRuntimeError)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		output = f
 	}
 

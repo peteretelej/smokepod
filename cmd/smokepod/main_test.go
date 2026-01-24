@@ -52,7 +52,7 @@ func TestCLI_Validate_Valid(t *testing.T) {
 
 	err := app.Run([]string{"smokepod", "validate", testdataPath("valid.yaml")})
 
-	w.Close()
+	_ = w.Close()
 	os.Stderr = old
 
 	var buf bytes.Buffer

@@ -6,6 +6,7 @@ require (
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/goccy/go-yaml v1.19.2
 	github.com/testcontainers/testcontainers-go v0.40.0
+	github.com/urfave/cli/v2 v2.27.7
 )
 
 require (
@@ -52,7 +53,6 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

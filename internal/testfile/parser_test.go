@@ -176,8 +176,8 @@ func TestParse_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	f.Close()
+	defer func() { _ = os.Remove(f.Name()) }()
+	_ = f.Close()
 
 	tf, err := Parse(f.Name())
 	if err != nil {
@@ -195,12 +195,12 @@ func TestParse_NoSectionHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 
 	if _, err := f.WriteString("$ echo hello\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	_, err = Parse(f.Name())
 	if err == nil {
@@ -241,12 +241,12 @@ func TestParse_DuplicateSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 
 	if _, err := f.WriteString("## test\n$ echo one\n\n## test\n$ echo two\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	_, err = Parse(f.Name())
 	if err == nil {
