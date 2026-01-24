@@ -137,3 +137,19 @@ func TestParseConfig_FileNotFound(t *testing.T) {
 		t.Errorf("error = %q, want to contain %q", err.Error(), "reading config")
 	}
 }
+
+func TestParseConfig_PlaywrightDefaultImage(t *testing.T) {
+	cfg, err := ParseConfig(testdataPath("playwright-default-image.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Tests) != 1 {
+		t.Fatalf("len(tests) = %d, want 1", len(cfg.Tests))
+	}
+
+	pw := cfg.Tests[0]
+	if pw.Image != DefaultPlaywrightImage {
+		t.Errorf("image = %q, want %q", pw.Image, DefaultPlaywrightImage)
+	}
+}

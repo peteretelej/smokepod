@@ -1,0 +1,6 @@
+name: playwright-default
+version: "1"
+tests:
+  - name: e2e-suite
+    type: playwright
+    path: tests/e2e

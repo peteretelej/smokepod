@@ -63,11 +63,21 @@ func ParseConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// DefaultPlaywrightImage is the default Docker image for Playwright tests.
+const DefaultPlaywrightImage = "mcr.microsoft.com/playwright:latest"
+
 func applyDefaults(cfg *Config) {
 	if cfg.Settings.Timeout == 0 {
 		cfg.Settings.Timeout = 5 * time.Minute
 	}
 	// Parallel defaults to true via IsParallel() method.
+
+	// Apply default images for test types
+	for i := range cfg.Tests {
+		if cfg.Tests[i].Image == "" && cfg.Tests[i].Type == "playwright" {
+			cfg.Tests[i].Image = DefaultPlaywrightImage
+		}
+	}
 }
 
 func validateConfig(cfg *Config) error {
@@ -106,8 +116,8 @@ func validateTest(test TestDefinition, index int) error {
 		return fmt.Errorf("%s: type must be \"cli\" or \"playwright\", got %q", prefix, test.Type)
 	}
 
-	if test.Image == "" {
-		return fmt.Errorf("%s: image is required", prefix)
+	if test.Image == "" && test.Type == "cli" {
+		return fmt.Errorf("%s: image is required for cli tests", prefix)
 	}
 
 	if test.Type == "cli" && test.File == "" {
