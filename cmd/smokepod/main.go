@@ -296,7 +296,7 @@ func recordAction(c *cli.Context) error {
 	update := c.Bool("update")
 	timeout := c.Duration("timeout")
 	runFlag := c.String("run")
-	_ = c.Bool("allow-empty") // accepted, used in Phase 4
+	allowEmpty := c.Bool("allow-empty")
 
 	if os.Getenv("CI") != "" && !update {
 		fmt.Fprintln(os.Stderr, "Warning: CI environment detected; use --update to overwrite fixtures")
@@ -317,7 +317,9 @@ func recordAction(c *cli.Context) error {
 	}
 
 	if len(testFiles) == 0 {
-		fmt.Fprintf(os.Stderr, "No .test files found in %s\n", testsPath)
+		if !allowEmpty {
+			return cli.Exit("no .test files found in "+testsPath+"; use --allow-empty to allow", exitConfigError)
+		}
 		return nil
 	}
 
@@ -416,7 +418,7 @@ func verifyAction(c *cli.Context) error {
 	failFast := c.Bool("fail-fast")
 	timeout := c.Duration("timeout")
 	jsonOutput := c.Bool("json")
-	_ = c.Bool("allow-empty") // accepted, used in Phase 4
+	allowEmpty := c.Bool("allow-empty")
 
 	testFiles, err := smokepod.FindTestFiles(testsPath)
 	if err != nil {
@@ -424,7 +426,9 @@ func verifyAction(c *cli.Context) error {
 	}
 
 	if len(testFiles) == 0 {
-		fmt.Fprintf(os.Stderr, "No .test files found in %s\n", testsPath)
+		if !allowEmpty {
+			return cli.Exit("no .test files found in "+testsPath+"; use --allow-empty to allow", exitConfigError)
+		}
 		return nil
 	}
 
@@ -499,14 +503,92 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 			continue
 		}
 
-		sections, err := tf.GetSections(runSections)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
+		// Get sections to verify from .test file
+		// When --run is specified, only get sections that exist in the .test file
+		// (missing ones are handled separately below)
+		var sections []*testfile.Section
+		if len(runSections) > 0 {
+			for _, name := range runSections {
+				if s := tf.GetSection(name); s != nil {
+					sections = append(sections, s)
+				}
+			}
+		} else {
+			sections, err = tf.GetSections(nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
+				totalFailed++
+				if failFast {
+					break
+				}
+				continue
+			}
+		}
+
+		// Build set of .test section names for quick lookup
+		testSectionSet := make(map[string]bool, len(tf.Sections))
+		for name := range tf.Sections {
+			testSectionSet[name] = true
+		}
+
+		// Build the --run filter set (nil when --run is not specified)
+		var runFilterSet map[string]bool
+		if len(runSections) > 0 {
+			runFilterSet = make(map[string]bool, len(runSections))
+			for _, name := range runSections {
+				runFilterSet[name] = true
+			}
+		}
+
+		// Check for stale fixture sections
+		staleFailed := false
+		for fixtureSectionName := range fixture.Sections {
+			if testSectionSet[fixtureSectionName] {
+				// Section exists in .test file: not stale
+				continue
+			}
+			// Section is in fixture but not in .test file
+			if runFilterSet != nil && !runFilterSet[fixtureSectionName] {
+				// --run is specified and this section is outside the filter: ignore
+				continue
+			}
+			// Stale: either --run is not specified (full scope) or section is in --run filter
+			reporter.ReportFailure(fixtureSectionName, fmt.Sprintf(
+				"stale fixture section: exists in fixture but not in .test file (fixture: %s)", fixturePath,
+			))
+			reporter.ReportSection(fixtureSectionName, false)
 			totalFailed++
+			staleFailed = true
 			if failFast {
 				break
 			}
-			continue
+		}
+		if staleFailed && failFast {
+			break
+		}
+
+		// Check for --run sections that don't exist in either .test or fixture
+		if runFilterSet != nil {
+			runMissingFailed := false
+			for _, name := range runSections {
+				if testSectionSet[name] {
+					continue // exists in .test, will be verified below
+				}
+				if _, inFixture := fixture.Sections[name]; inFixture {
+					continue // already reported as stale above
+				}
+				// Section doesn't exist anywhere
+				reporter.ReportFailure(name, "section not found in .test file or fixture")
+				reporter.ReportSection(name, false)
+				totalFailed++
+				runMissingFailed = true
+				if failFast {
+					break
+				}
+			}
+			if runMissingFailed && failFast {
+				break
+			}
 		}
 
 		for _, section := range sections {
@@ -514,7 +596,25 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 
 			fixtureCommands, hasFixture := fixture.Sections[section.Name]
 			if !hasFixture {
-				fmt.Fprintf(os.Stderr, "\nMissing fixture for section: %s\n", section.Name)
+				reporter.ReportFailure(section.Name, fmt.Sprintf(
+					"missing fixture section: exists in .test but not in fixture (fixture: %s)", fixturePath,
+				))
+				reporter.ReportSection(section.Name, false)
+				totalFailed++
+				if failFast {
+					break
+				}
+				continue
+			}
+
+			// Command-count mismatch detection (bidirectional)
+			testCmdCount := len(section.Commands)
+			fixtureCmdCount := len(fixtureCommands)
+			if testCmdCount != fixtureCmdCount {
+				reporter.ReportFailure(section.Name, fmt.Sprintf(
+					"command count mismatch: .test has %d commands, fixture has %d (fixture: %s)",
+					testCmdCount, fixtureCmdCount, fixturePath,
+				))
 				reporter.ReportSection(section.Name, false)
 				totalFailed++
 				if failFast {
@@ -529,17 +629,6 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 				result, err := targetExec.Exec(ctx, cmd.Cmd)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
-					totalFailed++
-					sectionPassed = false
-					if failFast {
-						break
-					}
-					continue
-				}
-
-				if i >= len(fixtureCommands) {
-					fmt.Fprintf(os.Stderr, "\nMissing fixture for command: %s\n", cmd.Cmd)
-					reporter.ReportSection(section.Name, false)
 					totalFailed++
 					sectionPassed = false
 					if failFast {
