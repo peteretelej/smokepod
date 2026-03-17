@@ -46,6 +46,30 @@ hello
 $ ls -la /tmp
 ```
 
+### Multi-line Commands
+
+Consecutive `$`-prefixed lines without expected output between them are joined as a single multi-line command:
+
+```
+## deploy
+$ kubectl apply -f deployment.yaml
+$ kubectl wait --for=condition=available deployment/myapp
+deployment.apps/myapp condition met
+```
+
+In this example, the first two `$` lines form one multi-line command (joined with `\n`), and the third line is its expected output.
+
+To keep them as separate commands, add expected output (even an empty line) between them:
+
+```
+## deploy
+$ kubectl apply -f deployment.yaml
+deployment.apps/myapp configured
+
+$ kubectl wait --for=condition=available deployment/myapp
+deployment.apps/myapp condition met
+```
+
 ### Expected Output
 
 Lines following a command (until empty line or next command) are expected output:
@@ -71,6 +95,24 @@ $ curl http://api/users/1
 ```
 
 The regex pattern is matched against the actual output line.
+
+### Stderr Matching
+
+Suffix a line with ` (stderr)` to match against stderr instead of stdout:
+
+```
+$ ls /nonexistent
+No such file or directory (stderr)
+[exit:1]
+```
+
+Combine with regex using ` (stderr,re)` or ` (re,stderr)`:
+
+```
+$ gcc invalid.c
+error: .* (stderr,re)
+[exit:1]
+```
 
 ### Exit Code Assertions
 

@@ -98,6 +98,49 @@ tests:
 5. Playwright tests require `path`
 6. Paths are resolved relative to the config file location
 
+## Record and Verify Commands
+
+The `record` and `verify` commands operate on `.test` files directly without a YAML config.
+
+### Record
+
+```bash
+smokepod record --target /bin/bash --tests tests/ --fixtures fixtures/
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--target` | yes | - | Shell to use for recording |
+| `--tests` | yes | - | Path to `.test` files |
+| `--fixtures` | yes | - | Output directory for fixtures |
+| `--update` | no | `false` | Overwrite existing fixtures |
+| `--timeout` | no | `30s` | Per-command timeout |
+| `--run` | no | all | Comma-separated section names |
+
+Recording is refused in CI environments (when `CI` env var is set) unless `--update` is passed.
+
+### Verify
+
+```bash
+smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--target` | yes | - | Target command (shell or process) |
+| `--tests` | yes | - | Path to `.test` files |
+| `--fixtures` | yes | - | Path to fixtures directory |
+| `--mode` | no | `shell` | Target mode: `shell` or `process` |
+| `--fail-fast` | no | `false` | Stop on first failure |
+| `--timeout` | no | `30s` | Per-command timeout |
+| `--json` | no | `false` | Output results as JSON |
+| `--run` | no | all | Comma-separated section names |
+
+### Target Modes
+
+- **shell** (default): Runs commands via the target as a shell (`target -c "command"`). Best for recording from `/bin/bash` and verifying against custom shells.
+- **process**: Communicates with the target via JSONL on stdin/stdout. The target process receives `{"command":"..."}` and responds with `{"stdout":"...","stderr":"...","exit_code":0}`.
+
 ## Command-Line Overrides
 
 Settings can be overridden via CLI flags:

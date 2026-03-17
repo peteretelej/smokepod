@@ -4,14 +4,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/peteretelej/smokepod)](https://goreportcard.com/report/github.com/peteretelej/smokepod)
 [![Go Reference](https://pkg.go.dev/badge/github.com/peteretelej/smokepod.svg)](https://pkg.go.dev/github.com/peteretelej/smokepod)
 
-Containerized smoke test runner. Execute CLI and browser tests against built artifacts in isolated Docker containers.
+Comparison test runner for CLI tools. Record expected outputs, verify against fixtures, and run containerized smoke tests.
 
 ## Features
 
+- **Record/verify** workflow for CLI comparison testing
+- **Process target** for testing via JSONL protocol
 - Run tests in Docker containers for isolation
-- CLI tests in standalone `.test` files
+- CLI tests in standalone `.test` files with multi-line commands and stderr matching
 - Playwright browser test support
 - JSON output for CI integration
+- GitHub Action for easy CI integration
 - Usable as CLI tool or Go library
 
 ## Installation
@@ -59,6 +62,95 @@ Run:
 
 ```bash
 smokepod run smokepod.yaml
+```
+
+### Record and Verify
+
+Record expected outputs from a reference shell:
+
+```bash
+smokepod record --target /bin/bash --tests tests/ --fixtures fixtures/
+```
+
+Verify a different target produces the same output:
+
+```bash
+smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
+```
+
+Use process mode for targets that communicate via JSONL:
+
+```bash
+smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/ --mode process
+```
+
+## GitHub Action
+
+```yaml
+- uses: peteretelej/smokepod@v1
+  with:
+    mode: verify
+    target: /bin/bash
+    tests: tests/
+    fixtures: fixtures/
+```
+
+### Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `mode` | yes | - | `record`, `verify`, or `run` |
+| `target` | for record/verify | - | Target command (shell or process) |
+| `tests` | for record/verify | - | Path to `.test` files |
+| `fixtures` | for record/verify | - | Path to fixtures directory |
+| `config` | for run | - | Path to `smokepod.yaml` |
+| `target-mode` | no | `shell` | `shell` or `process` |
+| `fail-fast` | no | `false` | Stop on first failure |
+| `timeout` | no | - | Per-command timeout (e.g. `30s`, `1m`) |
+| `run` | no | - | Comma-separated section names |
+| `json` | no | `false` | Output results as JSON |
+| `version` | no | `latest` | Smokepod version to install |
+
+### Examples
+
+**Verify on multiple platforms:**
+
+```yaml
+jobs:
+  smoke-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: peteretelej/smokepod@v1
+        with:
+          mode: verify
+          target: /bin/bash
+          tests: tests/
+          fixtures: fixtures/
+```
+
+**Record fixtures in CI:**
+
+```yaml
+- uses: peteretelej/smokepod@v1
+  with:
+    mode: record
+    target: /bin/bash
+    tests: tests/
+    fixtures: fixtures/
+```
+
+**Run Docker smoke tests:**
+
+```yaml
+- uses: peteretelej/smokepod@v1
+  with:
+    mode: run
+    config: smokepod.yaml
+    fail-fast: 'true'
 ```
 
 ## Test File Format

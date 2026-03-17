@@ -1,0 +1,182 @@
+name: 'Smokepod'
+description: 'Run smoke tests with smokepod - record, verify, or run CLI tests'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  mode:
+    description: 'record, verify, or run'
+    required: true
+  target:
+    description: 'Target command (for shell/process mode)'
+    required: false
+  tests:
+    description: 'Path to .test files'
+    required: false
+  fixtures:
+    description: 'Path to fixtures directory'
+    required: false
+  config:
+    description: 'Path to smokepod.yaml (for run mode)'
+    required: false
+  target-mode:
+    description: 'shell (default) or process'
+    default: 'shell'
+  fail-fast:
+    description: 'Stop on first failure'
+    default: 'false'
+  timeout:
+    description: 'Per-command timeout (e.g. 30s, 1m)'
+    required: false
+  run:
+    description: 'Comma-separated section names to run'
+    required: false
+  json:
+    description: 'Output results as JSON'
+    default: 'false'
+  version:
+    description: 'Smokepod version to install'
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install smokepod
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        # Detect OS and architecture
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+          *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+
+        EXT=""
+        if [ "$OS" = "windows" ] || [ "$OS" = "mingw"* ]; then
+          OS="windows"
+          EXT=".exe"
+        fi
+
+        # Resolve version
+        VERSION="${INPUT_VERSION}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sSL "https://api.github.com/repos/peteretelej/smokepod/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
+        fi
+
+        # Strip leading v for download URL
+        VERSION_NUM="${VERSION#v}"
+
+        BINARY="smokepod_${OS}_${ARCH}${EXT}"
+        BASE_URL="https://github.com/peteretelej/smokepod/releases/download/${VERSION}"
+
+        echo "Installing smokepod ${VERSION} (${OS}/${ARCH})"
+
+        # Download binary and checksums
+        curl -sSL "${BASE_URL}/${BINARY}" -o smokepod${EXT}
+        curl -sSL "${BASE_URL}/checksums.txt" -o checksums.txt
+
+        # Verify checksum
+        EXPECTED=$(grep "${BINARY}" checksums.txt | awk '{print $1}')
+        if [ -z "$EXPECTED" ]; then
+          echo "Error: checksum not found for ${BINARY}"
+          exit 1
+        fi
+
+        if command -v sha256sum &> /dev/null; then
+          ACTUAL=$(sha256sum smokepod${EXT} | awk '{print $1}')
+        else
+          ACTUAL=$(shasum -a 256 smokepod${EXT} | awk '{print $1}')
+        fi
+
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "Checksum mismatch!"
+          echo "  Expected: $EXPECTED"
+          echo "  Actual:   $ACTUAL"
+          exit 1
+        fi
+
+        chmod +x smokepod${EXT}
+        sudo mv smokepod${EXT} /usr/local/bin/smokepod${EXT}
+        rm -f checksums.txt
+
+        smokepod${EXT} --version
+
+    - name: Run smokepod
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_TESTS: ${{ inputs.tests }}
+        INPUT_FIXTURES: ${{ inputs.fixtures }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_TARGET_MODE: ${{ inputs.target-mode }}
+        INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_RUN: ${{ inputs.run }}
+        INPUT_JSON: ${{ inputs.json }}
+      run: |
+        set -euo pipefail
+
+        ARGS=()
+
+        case "$INPUT_MODE" in
+          record)
+            ARGS+=("record")
+            ARGS+=("--target" "$INPUT_TARGET")
+            ARGS+=("--tests" "$INPUT_TESTS")
+            ARGS+=("--fixtures" "$INPUT_FIXTURES")
+            ARGS+=("--update")
+            if [ -n "$INPUT_TIMEOUT" ]; then
+              ARGS+=("--timeout" "$INPUT_TIMEOUT")
+            fi
+            if [ -n "$INPUT_RUN" ]; then
+              ARGS+=("--run" "$INPUT_RUN")
+            fi
+            ;;
+          verify)
+            ARGS+=("verify")
+            ARGS+=("--target" "$INPUT_TARGET")
+            ARGS+=("--tests" "$INPUT_TESTS")
+            ARGS+=("--fixtures" "$INPUT_FIXTURES")
+            ARGS+=("--mode" "$INPUT_TARGET_MODE")
+            if [ "$INPUT_FAIL_FAST" = "true" ]; then
+              ARGS+=("--fail-fast")
+            fi
+            if [ -n "$INPUT_TIMEOUT" ]; then
+              ARGS+=("--timeout" "$INPUT_TIMEOUT")
+            fi
+            if [ "$INPUT_JSON" = "true" ]; then
+              ARGS+=("--json")
+            fi
+            if [ -n "$INPUT_RUN" ]; then
+              ARGS+=("--run" "$INPUT_RUN")
+            fi
+            ;;
+          run)
+            if [ -z "$INPUT_CONFIG" ]; then
+              echo "Error: 'config' input is required for mode 'run'"
+              exit 1
+            fi
+            ARGS+=("run" "$INPUT_CONFIG")
+            if [ "$INPUT_FAIL_FAST" = "true" ]; then
+              ARGS+=("--fail-fast")
+            fi
+            if [ -n "$INPUT_TIMEOUT" ]; then
+              ARGS+=("--timeout" "$INPUT_TIMEOUT")
+            fi
+            ;;
+          *)
+            echo "Error: invalid mode '$INPUT_MODE'. Must be record, verify, or run."
+            exit 1
+            ;;
+        esac
+
+        smokepod "${ARGS[@]}"
