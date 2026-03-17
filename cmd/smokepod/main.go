@@ -497,7 +497,6 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 				fmt.Fprintf(os.Stderr, "\nMissing fixture for section: %s\n", section.Name)
 				reporter.ReportSection(section.Name, false)
 				totalFailed++
-				sectionPassed = false
 				if failFast {
 					break
 				}
