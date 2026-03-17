@@ -276,7 +276,7 @@ func recordAction(c *cli.Context) error {
 	testsPath := c.String("tests")
 	fixturesPath := c.String("fixtures")
 	update := c.Bool("update")
-	timeout := c.Duration("timeout")
+	_ = c.Duration("timeout")
 	runFlag := c.String("run")
 
 	if os.Getenv("CI") != "" && !update {
@@ -302,7 +302,7 @@ func recordAction(c *cli.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Duration(len(testFiles)))
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
@@ -388,7 +388,7 @@ func verifyAction(c *cli.Context) error {
 	fixturesPath := c.String("fixtures")
 	mode := c.String("mode")
 	failFast := c.Bool("fail-fast")
-	timeout := c.Duration("timeout")
+	_ = c.Duration("timeout")
 	_ = c.Bool("json")
 
 	testFiles, err := smokepod.FindTestFiles(testsPath)
@@ -401,7 +401,7 @@ func verifyAction(c *cli.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Duration(len(testFiles)))
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
@@ -518,18 +518,22 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 
 				expected := fixtureCommands[i]
 
-				compareResult := smokepod.CompareOutput(expected.Stdout, result.Stdout)
+				stdoutResult := smokepod.CompareOutput(expected.Stdout, result.Stdout)
+				stderrResult := smokepod.CompareOutput(expected.Stderr, result.Stderr)
 				exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
 
-				if compareResult.Matched && exitMatched {
+				if stdoutResult.Matched && stderrResult.Matched && exitMatched {
 					totalPassed++
 				} else {
 					sectionPassed = false
 					totalFailed++
 
 					var diffParts []string
-					if !compareResult.Matched {
-						diffParts = append(diffParts, compareResult.Diff)
+					if !stdoutResult.Matched {
+						diffParts = append(diffParts, "stdout:\n"+stdoutResult.Diff)
+					}
+					if !stderrResult.Matched {
+						diffParts = append(diffParts, "stderr:\n"+stderrResult.Diff)
 					}
 					if !exitMatched {
 						diffParts = append(diffParts, fmt.Sprintf("Exit code: expected %d, got %d", expected.ExitCode, result.ExitCode))

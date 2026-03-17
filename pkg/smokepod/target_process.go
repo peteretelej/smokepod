@@ -18,6 +18,7 @@ type ProcessTarget struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Scanner
+	stderr io.Reader
 	mu     sync.Mutex
 }
 
@@ -44,7 +45,10 @@ func NewProcessTarget(ctx context.Context, command string) (*ProcessTarget, erro
 		return nil, fmt.Errorf("creating stdout pipe: %w", err)
 	}
 
-	cmd.Stderr = nil
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating stderr pipe: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting process: %w", err)
@@ -57,6 +61,7 @@ func NewProcessTarget(ctx context.Context, command string) (*ProcessTarget, erro
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: scanner,
+		stderr: stderrPipe,
 	}, nil
 }
 
