@@ -57,3 +57,52 @@ jobs:
         run: |
           cd examples/library-usage
           go build -v .
+
+  action-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build smokepod
+        shell: bash
+        run: |
+          ext=""
+          case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) ext=".exe" ;;
+          esac
+          go build -o "smokepod-local${ext}" ./cmd/smokepod
+
+      - name: Record fixture
+        shell: bash
+        run: |
+          ext=""
+          case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) ext=".exe" ;;
+          esac
+          mkdir -p testdata/action-fixtures
+          "./smokepod-local${ext}" record \
+            --target "$(command -v bash)" \
+            --tests testdata/fixtures/simple.test \
+            --fixtures testdata/action-fixtures/ \
+            --update
+
+      - name: Verify with target-args
+        shell: bash
+        run: |
+          ext=""
+          case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) ext=".exe" ;;
+          esac
+          "./smokepod-local${ext}" verify \
+            --target "$(command -v bash)" \
+            --tests testdata/fixtures/simple.test \
+            --fixtures testdata/action-fixtures/ \
+            --target-arg "--arg1" \
+            --target-arg "path with spaces/fixture"

@@ -9,10 +9,10 @@ inputs:
     description: 'record, verify, or run'
     required: true
   target:
-    description: 'Path to the target executable'
+    description: 'Target command for record/verify (e.g. /bin/sh, cmd.exe, ./my-tool)'
     required: false
   target-args:
-    description: 'Fixed arguments for the target executable (one per line)'
+    description: 'Fixed arguments passed to the target before each command, one per line (newline-delimited). Arguments containing spaces are preserved.'
     required: false
     default: ''
   tests:
@@ -53,8 +53,18 @@ runs:
       run: |
         set -euo pipefail
 
-        # Detect OS and architecture
-        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        # Fallback for self-hosted runners where RUNNER_TEMP may be unset
+        RUNNER_TEMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+
+        # Detect OS
+        case "$(uname -s)" in
+          Linux*)   os=linux ;;
+          Darwin*)  os=darwin ;;
+          MINGW*|MSYS*|CYGWIN*) os=windows ;;
+          *)        echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+        esac
+
+        # Detect architecture
         ARCH="$(uname -m)"
         case "$ARCH" in
           x86_64)  ARCH="amd64" ;;
@@ -63,11 +73,9 @@ runs:
           *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
         esac
 
-        EXT=""
-        if [ "$OS" = "windows" ] || [ "$OS" = "mingw"* ]; then
-          OS="windows"
-          EXT=".exe"
-        fi
+        # Derive .exe suffix from normalized OS
+        ext=""
+        if [ "$os" = "windows" ]; then ext=".exe"; fi
 
         # Resolve version
         VERSION="${INPUT_VERSION}"
@@ -78,13 +86,13 @@ runs:
         # Strip leading v for download URL
         VERSION_NUM="${VERSION#v}"
 
-        BINARY="smokepod_${OS}_${ARCH}${EXT}"
+        BINARY="smokepod_${os}_${ARCH}${ext}"
         BASE_URL="https://github.com/peteretelej/smokepod/releases/download/${VERSION}"
 
-        echo "Installing smokepod ${VERSION} (${OS}/${ARCH})"
+        echo "Installing smokepod ${VERSION} (${os}/${ARCH})"
 
         # Download binary and checksums
-        curl -sSL "${BASE_URL}/${BINARY}" -o smokepod${EXT}
+        curl -sSL "${BASE_URL}/${BINARY}" -o "smokepod${ext}"
         curl -sSL "${BASE_URL}/checksums.txt" -o checksums.txt
 
         # Verify checksum
@@ -95,9 +103,9 @@ runs:
         fi
 
         if command -v sha256sum &> /dev/null; then
-          ACTUAL=$(sha256sum smokepod${EXT} | awk '{print $1}')
+          ACTUAL=$(sha256sum "smokepod${ext}" | awk '{print $1}')
         else
-          ACTUAL=$(shasum -a 256 smokepod${EXT} | awk '{print $1}')
+          ACTUAL=$(shasum -a 256 "smokepod${ext}" | awk '{print $1}')
         fi
 
         if [ "$EXPECTED" != "$ACTUAL" ]; then
@@ -107,13 +115,16 @@ runs:
           exit 1
         fi
 
-        chmod +x smokepod${EXT}
-        mkdir -p "${RUNNER_TOOL_CACHE:-/usr/local/bin}"
-        mv smokepod${EXT} "${RUNNER_TOOL_CACHE:-/usr/local/bin}/smokepod${EXT}"
-        echo "${RUNNER_TOOL_CACHE:-/usr/local/bin}" >> "$GITHUB_PATH"
+        chmod +x "smokepod${ext}"
+
+        # Install to a dedicated directory and add to PATH
+        mkdir -p "${RUNNER_TEMP}/smokepod-bin"
+        mv "smokepod${ext}" "${RUNNER_TEMP}/smokepod-bin/smokepod${ext}"
+        echo "${RUNNER_TEMP}/smokepod-bin" >> "$GITHUB_PATH"
+        export PATH="${RUNNER_TEMP}/smokepod-bin:$PATH"
         rm -f checksums.txt
 
-        smokepod --version
+        "${RUNNER_TEMP}/smokepod-bin/smokepod${ext}" --version
 
     - name: Run smokepod
       shell: bash
@@ -134,6 +145,15 @@ runs:
 
         ARGS=()
 
+        # Parse target-args (newline-delimited) into a shell-safe array
+        TARGET_ARGS=()
+        if [ -n "$INPUT_TARGET_ARGS" ]; then
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            TARGET_ARGS+=("--target-arg" "$line")
+          done <<< "$INPUT_TARGET_ARGS"
+        fi
+
         case "$INPUT_MODE" in
           record)
             ARGS+=("record")
@@ -141,6 +161,9 @@ runs:
             ARGS+=("--tests" "$INPUT_TESTS")
             ARGS+=("--fixtures" "$INPUT_FIXTURES")
             ARGS+=("--update")
+            if [ ${#TARGET_ARGS[@]} -gt 0 ]; then
+              ARGS+=("${TARGET_ARGS[@]}")
+            fi
             if [ -n "$INPUT_TIMEOUT" ]; then
               ARGS+=("--timeout" "$INPUT_TIMEOUT")
             fi
@@ -154,6 +177,9 @@ runs:
             ARGS+=("--tests" "$INPUT_TESTS")
             ARGS+=("--fixtures" "$INPUT_FIXTURES")
             ARGS+=("--mode" "$INPUT_TARGET_MODE")
+            if [ ${#TARGET_ARGS[@]} -gt 0 ]; then
+              ARGS+=("${TARGET_ARGS[@]}")
+            fi
             if [ "$INPUT_FAIL_FAST" = "true" ]; then
               ARGS+=("--fail-fast")
             fi

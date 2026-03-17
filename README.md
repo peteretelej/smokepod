@@ -98,7 +98,8 @@ smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/ --mode p
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `mode` | yes | - | `record`, `verify`, or `run` |
-| `target` | for record/verify | - | Target command (shell or process) |
+| `target` | for record/verify | - | Target command (e.g. `/bin/sh`, `cmd.exe`, `./my-tool`) |
+| `target-args` | no | - | Fixed arguments for the target, one per line (newline-delimited) |
 | `tests` | for record/verify | - | Path to `.test` files |
 | `fixtures` | for record/verify | - | Path to fixtures directory |
 | `config` | for run | - | Path to `smokepod.yaml` |
@@ -119,16 +120,40 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: /bin/sh
+          - os: macos-latest
+            target: /bin/sh
+          - os: windows-latest
+            target: bash
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: peteretelej/smokepod@v1
         with:
           mode: verify
-          target: /bin/bash
+          target: ${{ matrix.target }}
           tests: tests/
           fixtures: fixtures/
 ```
+
+**Pass fixed arguments to the target:**
+
+```yaml
+- uses: peteretelej/smokepod@v1
+  with:
+    mode: verify
+    target: /bin/bash
+    target-args: |
+      --norc
+      --noprofile
+    tests: tests/
+    fixtures: fixtures/
+```
+
+Each line in `target-args` becomes a separate argument. Arguments containing
+spaces are preserved.
 
 **Record fixtures in CI:**
 
