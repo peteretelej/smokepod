@@ -9,10 +9,10 @@ inputs:
     description: 'record, verify, or run'
     required: true
   target:
-    description: 'Target command for record/verify (e.g. /bin/sh, cmd.exe, ./my-tool)'
+    description: 'Path to the target executable (e.g. /bin/sh, cmd.exe, ./my-tool)'
     required: false
   target-args:
-    description: 'Fixed arguments passed to the target before each command, one per line (newline-delimited). Arguments containing spaces are preserved.'
+    description: 'Fixed arguments for the target executable, one per line (newline-delimited). Each line becomes a separate argument.'
     required: false
     default: ''
   tests:
@@ -25,7 +25,7 @@ inputs:
     description: 'Path to smokepod.yaml (for run mode)'
     required: false
   target-mode:
-    description: 'shell (default) or process'
+    description: 'Target mode: shell (runs target -c <command>) or process (JSONL over stdin/stdout)'
     default: 'shell'
   fail-fast:
     description: 'Stop on first failure'

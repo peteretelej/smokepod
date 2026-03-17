@@ -4,11 +4,13 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/peteretelej/smokepod)](https://goreportcard.com/report/github.com/peteretelej/smokepod)
 [![Go Reference](https://pkg.go.dev/badge/github.com/peteretelej/smokepod.svg)](https://pkg.go.dev/github.com/peteretelej/smokepod)
 
-Comparison test runner for CLI tools. Record expected outputs, verify against fixtures, and run containerized smoke tests.
+Smoke test runner for CLI and containerized applications. Record expected outputs, verify against fixtures, and run smoke tests locally or in Docker containers.
 
 - **Record/verify** workflow for CLI comparison testing
-- **Process target** for testing via JSONL protocol
-- Docker container isolation
+- **Shell mode**: runs commands via a target executable (e.g. `/bin/bash`, `cmd.exe`)
+- **Process mode**: communicates with adapters via JSONL protocol
+- Docker container isolation for `run` mode
+- Cross-platform support (Linux, macOS, Windows)
 - Standalone `.test` files with multi-line commands and stderr matching
 - Playwright browser test support
 - JSON output for CI integration
@@ -64,11 +66,26 @@ smokepod run smokepod.yaml
 
 ### Record and Verify
 
+Smokepod supports three modes for working with `.test` files:
+
+- **`run`**: executes commands from a `.test` file and compares output against inline expectations (using a YAML config with Docker containers).
+- **`record`**: executes commands from `.test` files using a local target, writes results to fixture JSON files.
+- **`verify`**: re-executes commands from `.test` files using any target, compares results against previously recorded fixture JSON.
+
 Record expected outputs from a reference shell:
 
 ```bash
 smokepod record --target /bin/bash --tests tests/ --fixtures fixtures/
 ```
+
+Pass fixed arguments to the target executable:
+
+```bash
+smokepod record --target /bin/bash --target-arg --norc --target-arg --noprofile \
+  --tests tests/ --fixtures fixtures/
+```
+
+In shell mode (the default), commands are executed as `target ...target-args -c <command>`.
 
 Verify a different target produces the same output:
 
@@ -76,11 +93,18 @@ Verify a different target produces the same output:
 smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 ```
 
-Use process mode for targets that communicate via JSONL:
+Use process mode for targets that communicate via JSONL (direct exec, no shell wrapping):
 
 ```bash
-smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/ --mode process
+smokepod verify --target ./my-adapter --target-arg --port --target-arg 8080 \
+  --tests tests/ --fixtures fixtures/ --mode process
 ```
+
+In process mode, the target receives `{"command":"..."}` on stdin and responds
+with `{"stdout":"...","stderr":"...","exit_code":0}` on stdout.
+
+Verify will fail if fixture sections or command counts don't match the `.test`
+file (stale fixture detection).
 
 ## GitHub Action
 
@@ -126,7 +150,7 @@ jobs:
           - os: macos-latest
             target: /bin/sh
           - os: windows-latest
-            target: bash
+            target: cmd.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -137,6 +161,8 @@ jobs:
           tests: tests/
           fixtures: fixtures/
 ```
+
+On Windows, use `cmd.exe` or `powershell` as the target instead of `/bin/sh`.
 
 **Pass fixed arguments to the target:**
 
@@ -209,7 +235,8 @@ $ failing command
 
 ## Requirements
 
-- Docker (for `run` mode with containerized tests)
+- Docker (only needed for `run` mode with containerized tests)
+- Go 1.21+ (for building from source)
 
 ## Documentation
 

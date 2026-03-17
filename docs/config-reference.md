@@ -29,9 +29,23 @@ Duration format: `30s`, `5m`, `1h30m`, etc. (Go duration syntax).
 | `type` | string | yes | Test type: `cli` or `playwright` |
 | `image` | string | cli: yes, playwright: no | Docker image to use |
 | `file` | string | cli only | Path to `.test` file |
+| `target` | string | no | Path to the target executable (overrides global target) |
+| `target_args` | array | no | Fixed arguments passed to the target before each command |
+| `mode` | string | no | Target mode: `shell` (default) or `process` |
 | `run` | array | no | Specific sections to run (default: all) |
 | `path` | string | playwright only | Path to Playwright project |
 | `args` | array | no | Pass-through arguments |
+
+The `target_args` field is a list of strings. Each entry becomes a separate argument to the target executable. Only valid for `cli` tests with a non-empty `target`.
+
+```yaml
+- name: api-smoke
+  type: cli
+  image: curlimages/curl:latest
+  file: tests/api.test
+  target: /bin/bash
+  target_args: ["--norc", "--noprofile"]
+```
 
 ## CLI Test Fields
 
@@ -110,12 +124,21 @@ smokepod record --target /bin/bash --tests tests/ --fixtures fixtures/
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--target` | yes | - | Shell to use for recording |
+| `--target` | yes | - | Path to the target executable |
+| `--target-arg` | no | - | Fixed argument for the target (repeatable) |
 | `--tests` | yes | - | Path to `.test` files |
 | `--fixtures` | yes | - | Output directory for fixtures |
 | `--update` | no | `false` | Overwrite existing fixtures |
 | `--timeout` | no | `30s` | Per-command timeout |
 | `--run` | no | all | Comma-separated section names |
+| `--allow-empty` | no | `false` | Allow empty test discovery (no .test files found) |
+
+Each `--target-arg` appends one argument. For example:
+
+```bash
+smokepod record --target /bin/bash --target-arg --norc --target-arg --noprofile \
+  --tests tests/ --fixtures fixtures/
+```
 
 Recording is refused in CI environments (when `CI` env var is set) unless `--update` is passed.
 
@@ -127,7 +150,8 @@ smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--target` | yes | - | Target command (shell or process) |
+| `--target` | yes | - | Path to the target executable |
+| `--target-arg` | no | - | Fixed argument for the target (repeatable) |
 | `--tests` | yes | - | Path to `.test` files |
 | `--fixtures` | yes | - | Path to fixtures directory |
 | `--mode` | no | `shell` | Target mode: `shell` or `process` |
@@ -135,11 +159,12 @@ smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 | `--timeout` | no | `30s` | Per-command timeout |
 | `--json` | no | `false` | Output results as JSON |
 | `--run` | no | all | Comma-separated section names |
+| `--allow-empty` | no | `false` | Allow empty test discovery (no .test files found) |
 
 ### Target Modes
 
-- **shell** (default): Runs commands via the target as a shell (`target -c "command"`). Best for recording from `/bin/bash` and verifying against custom shells.
-- **process**: Communicates with the target via JSONL on stdin/stdout. The target process receives `{"command":"..."}` and responds with `{"stdout":"...","stderr":"...","exit_code":0}`.
+- **shell** (default): Executes commands via the target executable using `target ...target_args -c <command>`. The target must accept `-c` to run a command string. Best for recording from `/bin/bash` or `/bin/sh` and verifying against custom shells.
+- **process**: Runs the target executable directly (`target ...target_args`) and communicates via JSONL on stdin/stdout. The target process receives `{"command":"..."}` and responds with `{"stdout":"...","stderr":"...","exit_code":0}`. No shell wrapping is applied.
 
 ## Command-Line Overrides
 

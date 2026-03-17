@@ -1,6 +1,6 @@
 # Smokepod Design
 
-Containerized smoke test runner. Executes CLI and browser tests against built artifacts in Docker containers.
+Smoke test runner for CLI and containerized applications. Supports Docker containers (`run` mode), local shell targets, and process-mode adapters.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ Containerized smoke test runner. Executes CLI and browser tests against built ar
 
 ## Key Design Decisions
 
-- **Docker-only**: All tests run in containers. No local execution.
-- **testcontainers-go**: Handles container lifecycle and cleanup (Ryuk).
+- **Multiple target modes**: Tests can run in Docker containers (`run` mode), via local shell targets (`record`/`verify` in shell mode), or via process-mode adapters communicating over JSONL.
+- **testcontainers-go**: Handles container lifecycle and cleanup (Ryuk) for `run` mode.
 - **Parallel by default**: Tests run concurrently unless `--sequential`.
 - **JSON output**: Structured for CI and tooling consumption.

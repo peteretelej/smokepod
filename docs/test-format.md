@@ -15,6 +15,12 @@ $ another command
 more expected output
 ```
 
+### How `.test` files are used
+
+- **`run` mode**: commands are executed and output is compared against the inline expected output written in the `.test` file.
+- **`record` mode**: commands are executed and results are written to fixture JSON files. Inline expected output is not used during recording.
+- **`verify` mode**: commands are re-executed and output is compared against previously recorded fixture JSON, not the inline expectations. The `.test` file provides the commands and section structure; the fixture provides the expected results.
+
 ## Syntax Reference
 
 ### Section Headers
@@ -257,3 +263,13 @@ section "health", command at line 3: output mismatch
   expected: {"status":"ok"}
   actual:   {"status":"error"}
 ```
+
+## Stale Fixture Detection
+
+When using `verify`, smokepod checks that fixture files match the current `.test` file structure:
+
+- **Missing fixture sections**: if a `.test` file has a section that doesn't exist in the fixture, verification fails with a "missing fixture section" error. Re-record to fix.
+- **Stale fixture sections**: if a fixture has a section that no longer exists in the `.test` file, verification fails with a "stale fixture section" error. Re-record to remove stale data.
+- **Command count mismatch**: if a section has a different number of commands in the `.test` file than in the fixture, verification fails. Re-record after updating the `.test` file.
+
+This ensures that fixture data stays in sync with your test definitions.

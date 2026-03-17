@@ -28,7 +28,7 @@ const (
 func main() {
 	app := &cli.App{
 		Name:    "smokepod",
-		Usage:   "Containerized smoke test runner",
+		Usage:   "Smoke test runner for CLI and containerized applications",
 		Version: smokepod.VersionString(),
 		Commands: []*cli.Command{
 			runCommand(),
