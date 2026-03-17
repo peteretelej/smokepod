@@ -1,0 +1,13 @@
+## for-loop
+$ for i in 1 2 3; do
+$   echo $i
+$ done
+1
+2
+3
+
+## separate-cmds
+$ echo first
+
+$ echo second
+second

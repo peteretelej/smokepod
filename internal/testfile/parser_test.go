@@ -308,6 +308,110 @@ func TestParse_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestParse_MultilineCommand(t *testing.T) {
+	tf, err := Parse(testdataPath("multiline-cmd.test"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Multi-line for loop should be concatenated into one command
+	section := requireSection(t, tf, "for-loop")
+	if len(section.Commands) != 1 {
+		t.Fatalf("commands = %d, want 1", len(section.Commands))
+	}
+
+	cmd := section.Commands[0]
+	wantCmd := "for i in 1 2 3; do\necho $i\ndone"
+	if cmd.Cmd != wantCmd {
+		t.Errorf("cmd = %q, want %q", cmd.Cmd, wantCmd)
+	}
+
+	if len(cmd.Expected) != 3 {
+		t.Fatalf("expected lines = %d, want 3", len(cmd.Expected))
+	}
+
+	for i, want := range []string{"1", "2", "3"} {
+		if cmd.Expected[i].Text != want {
+			t.Errorf("expected[%d] = %q, want %q", i, cmd.Expected[i].Text, want)
+		}
+	}
+
+	// Separate commands (with empty line between) should remain separate
+	section = requireSection(t, tf, "separate-cmds")
+	if len(section.Commands) != 2 {
+		t.Fatalf("commands = %d, want 2", len(section.Commands))
+	}
+
+	if section.Commands[0].Cmd != "echo first" {
+		t.Errorf("cmd[0] = %q, want %q", section.Commands[0].Cmd, "echo first")
+	}
+	if section.Commands[1].Cmd != "echo second" {
+		t.Errorf("cmd[1] = %q, want %q", section.Commands[1].Cmd, "echo second")
+	}
+}
+
+func TestParse_StderrSuffix(t *testing.T) {
+	tf, err := Parse(testdataPath("stderr.test"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// (stderr) suffix
+	section := requireSection(t, tf, "stderr-only")
+	cmd := section.Commands[0]
+	if len(cmd.Expected) != 1 {
+		t.Fatalf("expected lines = %d, want 1", len(cmd.Expected))
+	}
+	exp := cmd.Expected[0]
+	if exp.Text != "error message" {
+		t.Errorf("text = %q, want %q", exp.Text, "error message")
+	}
+	if !exp.IsStderr {
+		t.Error("expected IsStderr=true")
+	}
+	if exp.IsRegex {
+		t.Error("expected IsRegex=false")
+	}
+
+	// (stderr,re) combined suffix
+	section = requireSection(t, tf, "stderr-regex")
+	cmd = section.Commands[0]
+	exp = cmd.Expected[0]
+	if exp.Text != "warning: .*" {
+		t.Errorf("text = %q, want %q", exp.Text, "warning: .*")
+	}
+	if !exp.IsStderr {
+		t.Error("expected IsStderr=true")
+	}
+	if !exp.IsRegex {
+		t.Error("expected IsRegex=true")
+	}
+
+	// Mixed stdout and stderr expectations
+	section = requireSection(t, tf, "mixed")
+	cmd = section.Commands[0]
+	if len(cmd.Expected) != 2 {
+		t.Fatalf("expected lines = %d, want 2", len(cmd.Expected))
+	}
+	if cmd.Expected[0].IsStderr {
+		t.Error("expected[0] should be stdout")
+	}
+	if !cmd.Expected[1].IsStderr {
+		t.Error("expected[1] should be stderr")
+	}
+
+	// (re,stderr) order should also work
+	section = requireSection(t, tf, "re-stderr-order")
+	cmd = section.Commands[0]
+	exp = cmd.Expected[0]
+	if !exp.IsRegex {
+		t.Error("expected IsRegex=true for (re,stderr)")
+	}
+	if !exp.IsStderr {
+		t.Error("expected IsStderr=true for (re,stderr)")
+	}
+}
+
 func TestParse_LineNumbers(t *testing.T) {
 	tf, err := Parse(testdataPath("simple.test"))
 	if err != nil {

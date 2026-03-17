@@ -32,9 +32,10 @@ type Command struct {
 
 // Expect is a single expected output line.
 type Expect struct {
-	Line    int
-	Text    string
-	IsRegex bool
+	Line     int
+	Text     string
+	IsRegex  bool
+	IsStderr bool
 }
 
 // parser state
@@ -60,7 +61,7 @@ var (
 	sectionPattern  = regexp.MustCompile(`^##\s+(\S+)`)
 	commandPattern  = regexp.MustCompile(`^\$\s+(.+)`)
 	exitCodePattern = regexp.MustCompile(`^\[exit:(\d+)\]$`)
-	regexSuffix     = " (re)"
+	suffixPattern   = regexp.MustCompile(`\s+\((re|stderr)(?:,(re|stderr))*\)$`)
 )
 
 // Parse reads and parses a .test file.
@@ -116,6 +117,12 @@ func Parse(path string) (*TestFile, error) {
 				return nil, &ParseError{Line: lineNum, Message: "command before section header"}
 			}
 
+			// Multi-line command: if previous command has no expected output, concatenate
+			if currentCommand != nil && state == stateInCommand && len(currentCommand.Expected) == 0 {
+				currentCommand.Cmd += "\n" + matches[1]
+				continue
+			}
+
 			// Finalize previous command if any
 			if currentCommand != nil {
 				currentSection.Commands = append(currentSection.Commands, *currentCommand)
@@ -151,18 +158,30 @@ func Parse(path string) (*TestFile, error) {
 				continue
 			}
 
-			// Check for regex suffix
+			// Parse suffix flags: (re), (stderr), (stderr,re), (re,stderr)
 			isRegex := false
+			isStderr := false
 			text := line
-			if strings.HasSuffix(line, regexSuffix) {
-				isRegex = true
-				text = strings.TrimSuffix(line, regexSuffix)
+			if loc := suffixPattern.FindStringIndex(line); loc != nil {
+				suffix := line[loc[0]:]
+				text = line[:loc[0]]
+				// Extract flags from inside parentheses
+				inner := suffix[strings.Index(suffix, "(")+1 : strings.LastIndex(suffix, ")")]
+				for _, flag := range strings.Split(inner, ",") {
+					switch strings.TrimSpace(flag) {
+					case "re":
+						isRegex = true
+					case "stderr":
+						isStderr = true
+					}
+				}
 			}
 
 			currentCommand.Expected = append(currentCommand.Expected, Expect{
-				Line:    lineNum,
-				Text:    text,
-				IsRegex: isRegex,
+				Line:     lineNum,
+				Text:     text,
+				IsRegex:  isRegex,
+				IsStderr: isStderr,
 			})
 		}
 	}

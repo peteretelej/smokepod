@@ -1,0 +1,16 @@
+## stderr-only
+$ error-command
+error message (stderr)
+
+## stderr-regex
+$ warn-command
+warning: .* (stderr,re)
+
+## mixed
+$ mixed-command
+stdout line
+error line (stderr)
+
+## re-stderr-order
+$ another-command
+pattern \d+ (re,stderr)

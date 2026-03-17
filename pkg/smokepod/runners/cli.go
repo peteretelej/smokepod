@@ -68,11 +68,30 @@ func (r *CLIRunner) runCommand(ctx context.Context, cmd testfile.Command) Comman
 		return result
 	}
 
-	// Compare output if we have expected lines
-	if len(cmd.Expected) > 0 {
-		if err := r.compareOutput(cmd.Expected, result.Actual); err != nil {
+	// Separate expectations into stdout and stderr groups
+	var stdoutExpected, stderrExpected []testfile.Expect
+	for _, exp := range cmd.Expected {
+		if exp.IsStderr {
+			stderrExpected = append(stderrExpected, exp)
+		} else {
+			stdoutExpected = append(stdoutExpected, exp)
+		}
+	}
+
+	// Compare stdout expectations
+	if len(stdoutExpected) > 0 {
+		if err := r.compareOutput(stdoutExpected, strings.TrimRight(execResult.Stdout, "\n")); err != nil {
 			result.Passed = false
-			result.Error = err.Error()
+			result.Error = fmt.Sprintf("stdout: %s", err.Error())
+			return result
+		}
+	}
+
+	// Compare stderr expectations
+	if len(stderrExpected) > 0 {
+		if err := r.compareOutput(stderrExpected, strings.TrimRight(execResult.Stderr, "\n")); err != nil {
+			result.Passed = false
+			result.Error = fmt.Sprintf("stderr: %s", err.Error())
 			return result
 		}
 	}
@@ -115,6 +134,20 @@ func (r *CLIRunner) compareOutput(expected []testfile.Expect, actual string) err
 	return nil
 }
 
+func expectSuffix(exp testfile.Expect) string {
+	var parts []string
+	if exp.IsStderr {
+		parts = append(parts, "stderr")
+	}
+	if exp.IsRegex {
+		parts = append(parts, "re")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ",") + ")"
+}
+
 func formatDiff(expected []testfile.Expect, actual []string) string {
 	var b strings.Builder
 	b.WriteString("--- expected\n+++ actual\n")
@@ -126,10 +159,7 @@ func formatDiff(expected []testfile.Expect, actual []string) string {
 
 	for i := 0; i < maxLen; i++ {
 		if i < len(expected) {
-			suffix := ""
-			if expected[i].IsRegex {
-				suffix = " (re)"
-			}
+			suffix := expectSuffix(expected[i])
 			b.WriteString(fmt.Sprintf("- %s%s\n", expected[i].Text, suffix))
 		}
 		if i < len(actual) {
