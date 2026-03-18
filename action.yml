@@ -57,8 +57,9 @@ runs:
       run: |
         set -euo pipefail
 
-        # Fallback for self-hosted runners where RUNNER_TEMP may be unset
-        RUNNER_TEMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+        # Fallback for self-hosted runners where RUNNER_TEMP may be unset.
+        # Convert to Unix-style path so Git Bash tools work on Windows.
+        RUNNER_TEMP="$(cd "${RUNNER_TEMP:-${TMPDIR:-/tmp}}" && pwd)"
 
         # Detect OS
         case "$(uname -s)" in

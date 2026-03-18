@@ -67,6 +67,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Normalize RUNNER_TEMP for Git Bash on Windows
+        shell: bash
+        run: |
+          NORM_TEMP="$(cd "$RUNNER_TEMP" && pwd)"
+          echo "NORM_TEMP=$NORM_TEMP" >> "$GITHUB_ENV"
+
       - name: Build local smokepod binary
         shell: bash
         run: |
@@ -75,7 +81,7 @@ jobs:
             ext=".exe"
           fi
 
-          go build -o "$RUNNER_TEMP/smokepod$ext" ./cmd/smokepod
+          go build -o "$NORM_TEMP/smokepod$ext" ./cmd/smokepod
 
       - name: Determine platform key
         id: platform
@@ -100,11 +106,11 @@ jobs:
         run: |
           platform_key="${{ steps.platform.outputs.key }}"
           bin_name="${{ steps.platform.outputs.bin }}"
-          pkg_dir="$RUNNER_TEMP/platform-pkg"
+          pkg_dir="$NORM_TEMP/platform-pkg"
 
           cp -r "npm/platforms/$platform_key" "$pkg_dir"
           mkdir -p "$pkg_dir/bin"
-          cp "$RUNNER_TEMP/$bin_name" "$pkg_dir/bin/$bin_name"
+          cp "$NORM_TEMP/$bin_name" "$pkg_dir/bin/$bin_name"
           chmod +x "$pkg_dir/bin/$bin_name"
 
           pack_json=$(cd "$pkg_dir" && npm pack --json)
@@ -138,7 +144,7 @@ jobs:
       - name: Install and verify in sample project
         shell: bash
         run: |
-          sample_dir="$RUNNER_TEMP/npm-smoke-sample"
+          sample_dir="$NORM_TEMP/npm-smoke-sample"
           mkdir -p "$sample_dir"
           cat <<'EOF' > "$sample_dir/package.json"
           {
@@ -166,7 +172,7 @@ jobs:
             ext=".exe"
           fi
 
-          override_dir="$RUNNER_TEMP/npm-override-sample"
+          override_dir="$NORM_TEMP/npm-override-sample"
           mkdir -p "$override_dir"
           cat <<'EOF' > "$override_dir/package.json"
           {
@@ -183,7 +189,7 @@ jobs:
 
           (
             cd "$override_dir"
-            SMOKEPOD_BINARY="$RUNNER_TEMP/smokepod$ext" npx --no-install smokepod --version
+            SMOKEPOD_BINARY="$NORM_TEMP/smokepod$ext" npx --no-install smokepod --version
           )
 
   release:
