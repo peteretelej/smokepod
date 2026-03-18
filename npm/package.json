@@ -1,0 +1,25 @@
+{
+  "name": "smokepod",
+  "version": "0.0.0-dev",
+  "description": "Thin npm wrapper for Smokepod release binaries.",
+  "sourceControlVersion": "0.0.0-dev is source-control-only; the release workflow rewrites it from the Git tag before npm publish.",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "smokepod": "bin/run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.mjs",
+    "test": "node --test",
+    "pack": "npm pack"
+  },
+  "files": [
+    "bin/",
+    "vendor/",
+    "install.mjs",
+    "README.md"
+  ]
+}

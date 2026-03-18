@@ -2,3 +2,8 @@ bin/
 /smokepod
 *.exe
 .DS_Store
+!npm/bin/
+!npm/bin/run.js
+npm/vendor/smokepod
+npm/vendor/smokepod.exe
+npm/*.tgz
