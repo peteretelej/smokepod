@@ -1,0 +1,11 @@
+## normal
+$ echo hello
+hello
+
+## broken (xfail)
+$ echo wrong
+right
+
+## bugged (xfail: lexer bug #42)
+$ echo actual
+expected

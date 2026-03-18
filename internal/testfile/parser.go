@@ -18,8 +18,11 @@ type TestFile struct {
 
 // Section is a named group of commands.
 type Section struct {
-	Name     string
-	Commands []Command
+	Name        string
+	Commands    []Command
+	XFail       bool
+	XFailReason string
+	Line        int // source line number of the ## header
 }
 
 // Command is a single test command with expectations.
@@ -58,7 +61,7 @@ func (e *ParseError) Error() string {
 }
 
 var (
-	sectionPattern  = regexp.MustCompile(`^##\s+(\S+)`)
+	sectionPattern  = regexp.MustCompile(`^##\s+(\S+)(?:\s+\((xfail)(?::\s*([^)]+))?\))?`)
 	commandPattern  = regexp.MustCompile(`^\$\s+(.+)`)
 	exitCodePattern = regexp.MustCompile(`^\[exit:(\d+)\]$`)
 	suffixPattern   = regexp.MustCompile(`\s+\((re|stderr)(?:,(re|stderr))*\)$`)
@@ -104,7 +107,12 @@ func Parse(path string) (*TestFile, error) {
 				return nil, &ParseError{Line: lineNum, Message: fmt.Sprintf("duplicate section: %s", sectionName)}
 			}
 
-			currentSection = &Section{Name: sectionName}
+			currentSection = &Section{
+				Name:        sectionName,
+				XFail:       matches[2] == "xfail",
+				XFailReason: matches[3],
+				Line:        lineNum,
+			}
 			tf.Sections[sectionName] = currentSection
 			tf.Order = append(tf.Order, sectionName)
 			state = stateInSection

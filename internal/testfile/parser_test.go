@@ -430,3 +430,89 @@ func TestParse_LineNumbers(t *testing.T) {
 		t.Errorf("expected[0].Line = %d, want 3", cmd.Expected[0].Line)
 	}
 }
+
+func TestParse_XFail(t *testing.T) {
+	tf, err := Parse(testdataPath("xfail.test"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(tf.Sections) != 3 {
+		t.Fatalf("sections = %d, want 3", len(tf.Sections))
+	}
+
+	// normal section: no xfail
+	normal := requireSection(t, tf, "normal")
+	if normal.XFail {
+		t.Error("normal.XFail = true, want false")
+	}
+	if normal.XFailReason != "" {
+		t.Errorf("normal.XFailReason = %q, want empty", normal.XFailReason)
+	}
+
+	// broken section: xfail without reason
+	broken := requireSection(t, tf, "broken")
+	if !broken.XFail {
+		t.Error("broken.XFail = false, want true")
+	}
+	if broken.XFailReason != "" {
+		t.Errorf("broken.XFailReason = %q, want empty", broken.XFailReason)
+	}
+
+	// bugged section: xfail with reason
+	bugged := requireSection(t, tf, "bugged")
+	if !bugged.XFail {
+		t.Error("bugged.XFail = false, want true")
+	}
+	if bugged.XFailReason != "lexer bug #42" {
+		t.Errorf("bugged.XFailReason = %q, want %q", bugged.XFailReason, "lexer bug #42")
+	}
+}
+
+func TestParse_XFailPreservesName(t *testing.T) {
+	tf, err := Parse(testdataPath("xfail.test"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"normal", "broken", "bugged"}
+	for i, name := range tf.Order {
+		if name != expected[i] {
+			t.Errorf("order[%d] = %q, want %q", i, name, expected[i])
+		}
+	}
+
+	for _, name := range expected {
+		section := tf.GetSection(name)
+		if section == nil {
+			t.Errorf("section %q not found", name)
+			continue
+		}
+		if section.Name != name {
+			t.Errorf("section.Name = %q, want %q", section.Name, name)
+		}
+	}
+}
+
+func TestParse_XFailLineNumbers(t *testing.T) {
+	tf, err := Parse(testdataPath("xfail.test"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		line int
+	}{
+		{"normal", 1},
+		{"broken", 5},
+		{"bugged", 9},
+	}
+
+	for _, tt := range tests {
+		section := requireSection(t, tf, tt.name)
+		if section.Line != tt.line {
+			t.Errorf("section %q: Line = %d, want %d", tt.name, section.Line, tt.line)
+		}
+	}
+}
