@@ -241,6 +241,142 @@ func TestVerify_PartialRun_StaleSelected(t *testing.T) {
 	}
 }
 
+func TestVerify_XFail_ExpectedFailure(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// Section marked (xfail), command output won't match fixture
+	writeTestFile(t, testsDir, "example.test", "## broken (xfail)\n$ echo actual\nactual\n")
+
+	// Fixture records different output, so verify will see a mismatch
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"broken": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (xfail section failure is expected), got: %v", err)
+	}
+}
+
+func TestVerify_XPass_UnexpectedPass(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// Section marked (xfail), but output actually matches fixture
+	writeTestFile(t, testsDir, "example.test", "## broken (xfail)\n$ echo hello\nhello\n")
+
+	// Fixture matches actual output, triggering xpass
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"broken": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+		"--json",
+	)
+	if exitCode(err) != exitTestFailure {
+		t.Errorf("expected exit code %d for xpass, got %d (err: %v)", exitTestFailure, exitCode(err), err)
+	}
+}
+
+func TestVerify_XFail_WithReason(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// Section with xfail reason, output won't match
+	writeTestFile(t, testsDir, "example.test", "## broken (xfail: known bug #99)\n$ echo actual\nactual\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"broken": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (xfail with reason), got: %v", err)
+	}
+}
+
+func TestVerify_XFail_PartialPass(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// xfail section with 2 commands: one matches, one doesn't
+	writeTestFile(t, testsDir, "example.test", "## partial (xfail)\n$ echo match\nmatch\n\n$ echo actual\nactual\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"partial": {
+			{Line: 2, Command: "echo match", Stdout: "match\n", ExitCode: 0},
+			{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0},
+		},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (partial xfail counts as xfail), got: %v", err)
+	}
+}
+
+func TestVerify_XFail_MixedWithNormal(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// One normal passing section + one xfail section
+	writeTestFile(t, testsDir, "example.test",
+		"## normal\n$ echo hello\nhello\n\n## broken (xfail)\n$ echo actual\nactual\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"normal": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
+		"broken": {{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (normal pass + xfail = passing suite), got: %v", err)
+	}
+}
+
+func TestVerify_XFail_MixedWithFailure(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// One normal section that fails + one xfail section
+	writeTestFile(t, testsDir, "example.test",
+		"## normal\n$ echo actual\nactual\n\n## broken (xfail)\n$ echo actual\nactual\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"normal": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
+		"broken": {{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if exitCode(err) != exitTestFailure {
+		t.Errorf("expected exit code %d (normal failure present), got %d (err: %v)", exitTestFailure, exitCode(err), err)
+	}
+}
+
 func TestRecord_EmptyDiscovery_NoFlag(t *testing.T) {
 	testsDir := t.TempDir()
 	fixturesDir := t.TempDir()
