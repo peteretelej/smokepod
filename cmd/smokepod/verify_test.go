@@ -411,6 +411,95 @@ func TestRecord_EmptyDiscovery_AllowEmpty(t *testing.T) {
 	}
 }
 
+func TestVerify_RegexMatch(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// .test uses (re) pattern for date
+	writeTestFile(t, testsDir, "example.test",
+		"## dates\n$ date +%Y-%m-%d\n\\d{4}-\\d{2}-\\d{2} (re)\n")
+
+	// Fixture has a specific recorded date
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"dates": {{Line: 2, Command: "date +%Y-%m-%d", Stdout: "2026-03-18\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	// Actual output will be today's date, regex should match any date
+	if err != nil {
+		t.Errorf("expected success (regex should match date), got: %v", err)
+	}
+}
+
+func TestVerify_RegexMismatch(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// .test uses (re) that won't match "not-a-number"
+	writeTestFile(t, testsDir, "example.test",
+		"## nums\n$ echo not-a-number\n^\\d+$ (re)\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"nums": {{Line: 2, Command: "echo not-a-number", Stdout: "42\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if exitCode(err) != exitTestFailure {
+		t.Errorf("expected exit code %d (regex mismatch), got %d (err: %v)", exitTestFailure, exitCode(err), err)
+	}
+}
+
+func TestVerify_NoExpectations_BackwardCompat(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// .test has no expected output lines
+	writeTestFile(t, testsDir, "example.test", "## basic\n$ echo hello\nhello\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"basic": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (literal match, backward compat), got: %v", err)
+	}
+}
+
+func TestVerify_MixedRegexAndLiteral(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// 3 lines: line 1 literal, line 2 regex, line 3 literal
+	writeTestFile(t, testsDir, "example.test",
+		"## mixed\n$ printf 'header\\n42\\nfooter\\n'\nheader\n\\d+ (re)\nfooter\n")
+
+	writeFixture(t, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"mixed": {{Line: 2, Command: "printf 'header\\n42\\nfooter\\n'", Stdout: "header\n999\nfooter\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	)
+	if err != nil {
+		t.Errorf("expected success (line 2 regex matches, others literal), got: %v", err)
+	}
+}
+
 func TestVerify_PartialMatchWithMismatch(t *testing.T) {
 	testsDir := t.TempDir()
 	fixturesDir := t.TempDir()

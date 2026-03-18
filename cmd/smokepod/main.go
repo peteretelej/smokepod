@@ -718,8 +718,11 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 
 				expected := fixtureCommands[i]
 
-				stdoutResult := smokepod.CompareOutput(expected.Stdout, result.Stdout)
-				stderrResult := smokepod.CompareOutput(expected.Stderr, result.Stderr)
+				testExpected := section.Commands[i].Expected
+				stdoutResult := smokepod.CompareOutputWithExpectations(
+					expected.Stdout, result.Stdout, testExpected, false)
+				stderrResult := smokepod.CompareOutputWithExpectations(
+					expected.Stderr, result.Stderr, testExpected, true)
 				exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
 
 				if !stdoutResult.Matched || !stderrResult.Matched || !exitMatched {
