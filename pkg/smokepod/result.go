@@ -18,6 +18,8 @@ type Summary struct {
 	Passed  int `json:"passed"`
 	Failed  int `json:"failed"`
 	Skipped int `json:"skipped"`
+	XFail   int `json:"xfail"`
+	XPass   int `json:"xpass"`
 }
 
 // TestResult represents the result of a single test definition.
@@ -32,9 +34,10 @@ type TestResult struct {
 
 // SectionResult contains results for a test file section.
 type SectionResult struct {
-	Name     string          `json:"name"`
-	Passed   bool            `json:"passed"`
-	Commands []CommandResult `json:"commands"`
+	Name        string          `json:"name"`
+	Status      string          `json:"status"`                  // "pass", "fail", "xfail", "xpass"
+	XFailReason string          `json:"xfail_reason,omitempty"`
+	Commands    []CommandResult `json:"commands"`
 }
 
 // CommandResult contains the result for a single command.

@@ -23,9 +23,13 @@ func convertSectionResult(r *runners.SectionResult) SectionResult {
 			Error:    cmd.Error,
 		}
 	}
+	status := "fail"
+	if r.Passed {
+		status = "pass"
+	}
 	return SectionResult{
 		Name:     r.Name,
-		Passed:   r.Passed,
+		Status:   status,
 		Commands: commands,
 	}
 }

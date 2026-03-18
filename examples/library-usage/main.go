@@ -39,7 +39,9 @@ func main() {
 	fmt.Printf("  Total:   %d\n", result.Summary.Total)
 	fmt.Printf("  Passed:  %d\n", result.Summary.Passed)
 	fmt.Printf("  Failed:  %d\n", result.Summary.Failed)
-	fmt.Printf("  Skipped: %d\n\n", result.Summary.Skipped)
+	fmt.Printf("  Skipped: %d\n", result.Summary.Skipped)
+	fmt.Printf("  XFail:   %d\n", result.Summary.XFail)
+	fmt.Printf("  XPass:   %d\n\n", result.Summary.XPass)
 
 	// Print details for each test
 	fmt.Println("Tests:")
