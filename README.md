@@ -120,6 +120,9 @@ npx smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 | `(stderr)` suffix | Match against stderr instead of stdout |
 | `[exit:N]` | Assert exit code (default is 0) |
 | `#` | Comment |
+| `# target: path` | Set target for this file (record/verify) |
+| `# target-arg: arg` | Pass argument to target (repeatable) |
+| `# mode: shell\|process` | Set execution mode for this file |
 
 See [docs/test-format.md](docs/test-format.md) for the full syntax reference, including multi-line commands, combined `(stderr,re)` matching, and more examples.
 
@@ -164,6 +167,24 @@ Use process mode for targets that communicate via JSONL instead of a shell:
 npx smokepod verify --target ./my-adapter --mode process \
   --tests tests/ --fixtures fixtures/
 ```
+
+### Per-file target directives
+
+Instead of passing `--target` on the command line, test files can declare their own target using metadata directives at the top of the file (before the first `##` section):
+
+```
+# target: /bin/bash
+# target-arg: --norc
+# target-arg: --noprofile
+
+## echo
+$ echo "hello"
+hello
+```
+
+This makes `--target` optional. Each test file resolves its target independently: file directives take priority over CLI flags, so different test files can run against different targets in a single invocation.
+
+Available directives: `target`, `target-arg` (repeatable), and `mode` (`shell` or `process`).
 
 ## GitHub Action
 

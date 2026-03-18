@@ -168,6 +168,35 @@ $ false
 
 Default expected exit code is `0`. The `[exit:N]` line can appear anywhere in the expected output.
 
+### Metadata Directives (record/verify)
+
+Lines matching `# key: value` before the first `##` section header are parsed as metadata directives. These configure per-file target resolution for record and verify modes.
+
+```
+# target: /bin/bash
+# target-arg: --norc
+# target-arg: --noprofile
+# mode: shell
+
+## echo
+$ echo "hello"
+hello
+```
+
+Supported directives:
+
+| Directive | Description |
+|-----------|-------------|
+| `# target: path` | Target binary for this file. Overrides `--target` CLI flag. |
+| `# target-arg: arg` | Argument passed to the target. Repeatable for multiple args. Overrides `--target-arg` CLI flags. |
+| `# mode: shell\|process` | Execution mode. Overrides `--mode` CLI flag. Defaults to `shell`. |
+
+File directives take priority over CLI flags. If neither a directive nor a CLI flag provides a target, the command fails with an actionable error message.
+
+Only one `# target` directive is allowed per file. Multiple `# target-arg` directives are collected in order.
+
+Lines matching `# key: value` after the first section header are treated as regular comments.
+
 ### Comments
 
 Lines starting with `#` (but not `##`) are comments:
@@ -273,10 +302,11 @@ line3
 ## Parser Behavior
 
 1. Files are parsed top-to-bottom
-2. Commands must appear after a section header
-3. Duplicate section names cause a parse error
-4. Whitespace in expected output is significant
-5. Trailing newlines in actual output are trimmed for comparison
+2. `# key: value` lines before the first section header are parsed as metadata directives
+3. Commands must appear after a section header
+4. Duplicate section names cause a parse error
+5. Whitespace in expected output is significant
+6. Trailing newlines in actual output are trimmed for comparison
 
 ## Error Messages
 
