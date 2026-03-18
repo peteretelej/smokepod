@@ -1,0 +1,14 @@
+{
+  "name": "@peteretelej/smokepod-linux-x64",
+  "version": "0.0.0-dev",
+  "description": "Smokepod binary for Linux x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peteretelej/smokepod.git"
+  },
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "preferUnplugged": true
+}

@@ -77,34 +77,67 @@ jobs:
 
           go build -o "$RUNNER_TEMP/smokepod$ext" ./cmd/smokepod
 
-      - name: Pack wrapper and verify tarball contents
+      - name: Determine platform key
+        id: platform
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   os=linux;  bin=smokepod ;;
+            macOS)   os=darwin; bin=smokepod ;;
+            Windows) os=win32;  bin=smokepod.exe ;;
+          esac
+
+          arch=x64
+          if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+            arch=arm64
+          fi
+
+          echo "key=${os}-${arch}" >> "$GITHUB_OUTPUT"
+          echo "bin=${bin}" >> "$GITHUB_OUTPUT"
+
+      - name: Pack platform package with local binary
+        shell: bash
+        run: |
+          platform_key="${{ steps.platform.outputs.key }}"
+          bin_name="${{ steps.platform.outputs.bin }}"
+          pkg_dir="$RUNNER_TEMP/platform-pkg"
+
+          cp -r "npm/platforms/$platform_key" "$pkg_dir"
+          mkdir -p "$pkg_dir/bin"
+          cp "$RUNNER_TEMP/$bin_name" "$pkg_dir/bin/$bin_name"
+          chmod +x "$pkg_dir/bin/$bin_name"
+
+          pack_json=$(cd "$pkg_dir" && npm pack --json)
+          tarball=$(node -e "const d=JSON.parse(process.argv[1]);process.stdout.write(d[0].filename);" "$pack_json")
+          echo "PLATFORM_TARBALL=$pkg_dir/$tarball" >> "$GITHUB_ENV"
+
+      - name: Pack main wrapper
         shell: bash
         run: |
           pack_json=$(cd npm && npm pack --json)
-          tarball=$(node -e "const data = JSON.parse(process.argv[1]); process.stdout.write(data[0].filename);" "$pack_json")
-          echo "SMOKEPOD_TARBALL=$PWD/npm/$tarball" >> "$GITHUB_ENV"
-          tar -tf "$PWD/npm/$tarball"
+          tarball=$(node -e "const d=JSON.parse(process.argv[1]);process.stdout.write(d[0].filename);" "$pack_json")
+          echo "MAIN_TARBALL=$PWD/npm/$tarball" >> "$GITHUB_ENV"
+
+      - name: Verify tarball contents
+        shell: bash
+        run: |
+          echo "=== Main package ==="
+          tar -tf "$MAIN_TARBALL"
 
           for required in \
             package/package.json \
-            package/install.mjs \
             package/README.md \
-            package/bin/run.js \
-            package/vendor/.gitkeep
+            package/bin/run.js
           do
-            tar -tf "$PWD/npm/$tarball" | grep -Fx "$required" >/dev/null
+            tar -tf "$MAIN_TARBALL" | grep -Fx "$required" >/dev/null
           done
 
-      - name: Install packed wrapper into sample project
+          echo "=== Platform package ==="
+          tar -tf "$PLATFORM_TARBALL"
+
+      - name: Install and verify in sample project
         shell: bash
         run: |
-          ext=""
-          vendor_binary="smokepod"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ext=".exe"
-            vendor_binary="smokepod.exe"
-          fi
-
           sample_dir="$RUNNER_TEMP/npm-smoke-sample"
           mkdir -p "$sample_dir"
           cat <<'EOF' > "$sample_dir/package.json"
@@ -117,13 +150,40 @@ jobs:
 
           (
             cd "$sample_dir"
-            SMOKEPOD_BINARY="$RUNNER_TEMP/smokepod$ext" npm install "$SMOKEPOD_TARBALL"
+            npm install "$PLATFORM_TARBALL" "$MAIN_TARBALL"
           )
 
-          test -f "$sample_dir/node_modules/smokepod/vendor/$vendor_binary"
           (
             cd "$sample_dir"
             npx --no-install smokepod --version
+          )
+
+      - name: Verify SMOKEPOD_BINARY override
+        shell: bash
+        run: |
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ext=".exe"
+          fi
+
+          override_dir="$RUNNER_TEMP/npm-override-sample"
+          mkdir -p "$override_dir"
+          cat <<'EOF' > "$override_dir/package.json"
+          {
+            "name": "smokepod-override-smoke",
+            "private": true,
+            "type": "module"
+          }
+          EOF
+
+          (
+            cd "$override_dir"
+            npm install "$MAIN_TARBALL"
+          )
+
+          (
+            cd "$override_dir"
+            SMOKEPOD_BINARY="$RUNNER_TEMP/smokepod$ext" npx --no-install smokepod --version
           )
 
   release:
@@ -162,11 +222,62 @@ jobs:
 
       - run: npm install -g npm@latest
 
-      - name: Set npm package version from tag
+      - name: Set version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Publish platform packages
+        shell: bash
+        run: |
+          declare -A ARTIFACT_MAP=(
+            ["darwin-arm64"]="smokepod_darwin_arm64"
+            ["darwin-x64"]="smokepod_darwin_amd64"
+            ["linux-arm64"]="smokepod_linux_arm64"
+            ["linux-x64"]="smokepod_linux_amd64"
+            ["win32-arm64"]="smokepod_windows_arm64.exe"
+            ["win32-x64"]="smokepod_windows_amd64.exe"
+          )
+
+          declare -A BIN_NAME_MAP=(
+            ["win32-arm64"]="smokepod.exe"
+            ["win32-x64"]="smokepod.exe"
+          )
+
+          for platform in "${!ARTIFACT_MAP[@]}"; do
+            artifact="${ARTIFACT_MAP[$platform]}"
+            bin_name="${BIN_NAME_MAP[$platform]:-smokepod}"
+            pkg_dir="$RUNNER_TEMP/pkg-$platform"
+
+            cp -r "npm/platforms/$platform" "$pkg_dir"
+            cd "$pkg_dir"
+            npm pkg set "version=$VERSION"
+
+            mkdir -p bin
+            gh release download "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$artifact" \
+              --dir bin/
+            mv "bin/$artifact" "bin/$bin_name"
+            chmod +x "bin/$bin_name"
+
+            npm publish --provenance --access public
+            cd -
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish main package
         working-directory: npm
         shell: bash
-        run: npm pkg set version="${GITHUB_REF_NAME#v}"
-
-      - name: Publish npm package
-        working-directory: npm
-        run: npm publish --provenance --access public
+        run: |
+          npm pkg set "version=$VERSION"
+          for dep in \
+            @peteretelej/smokepod-darwin-arm64 \
+            @peteretelej/smokepod-darwin-x64 \
+            @peteretelej/smokepod-linux-arm64 \
+            @peteretelej/smokepod-linux-x64 \
+            @peteretelej/smokepod-win32-arm64 \
+            @peteretelej/smokepod-win32-x64
+          do
+            npm pkg set "optionalDependencies.$dep=$VERSION"
+          done
+          npm publish --provenance --access public

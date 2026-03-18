@@ -1,0 +1,14 @@
+{
+  "name": "@peteretelej/smokepod-win32-x64",
+  "version": "0.0.0-dev",
+  "description": "Smokepod binary for Windows x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peteretelej/smokepod.git"
+  },
+  "license": "MIT",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "preferUnplugged": true
+}

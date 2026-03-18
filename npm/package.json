@@ -16,14 +16,19 @@
     "smokepod": "bin/run.js"
   },
   "scripts": {
-    "postinstall": "node install.mjs",
     "test": "node --test",
     "pack": "npm pack"
   },
   "files": [
     "bin/",
-    "vendor/",
-    "install.mjs",
     "README.md"
-  ]
+  ],
+  "optionalDependencies": {
+    "@peteretelej/smokepod-darwin-arm64": "0.0.0-dev",
+    "@peteretelej/smokepod-darwin-x64": "0.0.0-dev",
+    "@peteretelej/smokepod-linux-arm64": "0.0.0-dev",
+    "@peteretelej/smokepod-linux-x64": "0.0.0-dev",
+    "@peteretelej/smokepod-win32-arm64": "0.0.0-dev",
+    "@peteretelej/smokepod-win32-x64": "0.0.0-dev"
+  }
 }

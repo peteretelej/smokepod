@@ -1,6 +1,6 @@
 # smokepod
 
-`smokepod` on npm is a thin wrapper around the native Smokepod binaries published on GitHub releases. The package does not reimplement the CLI in JavaScript; it installs the matching release binary during `postinstall` and exposes it through npm's normal `bin` linking.
+`smokepod` on npm is a thin wrapper around the native Smokepod binaries published on GitHub releases. The package does not reimplement the CLI in JavaScript; it uses platform-specific optional dependencies to install the correct binary for your OS and architecture.
 
 ## Install
 
@@ -14,7 +14,7 @@ or:
 pnpm add -D smokepod
 ```
 
-Installed binaries live under `vendor/` inside the package.
+npm automatically installs only the binary matching your platform from the `@peteretelej/smokepod-*` packages.
 
 ## Supported platforms
 
@@ -22,15 +22,13 @@ Installed binaries live under `vendor/` inside the package.
 - macOS `x64` and `arm64`
 - Windows `x64` and `arm64`
 
-## Override install source with `SMOKEPOD_BINARY`
+## Override binary with `SMOKEPOD_BINARY`
 
-If you need to install from a trusted local binary instead of downloading from GitHub releases, set `SMOKEPOD_BINARY` during install:
+If you need to use a local binary instead of the platform package:
 
 ```bash
-SMOKEPOD_BINARY=/absolute/path/to/smokepod npm install --save-dev smokepod
+SMOKEPOD_BINARY=/absolute/path/to/smokepod npx smokepod run config.yaml
 ```
-
-The installer copies that binary into `vendor/` and keeps the original file untouched.
 
 ## Usage
 
