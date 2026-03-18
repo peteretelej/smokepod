@@ -182,9 +182,9 @@ $ echo "hello"
 hello
 ```
 
-This makes `--target` optional. Each test file resolves its target independently: file directives take priority over CLI flags, so different test files can run against different targets in a single invocation.
+This makes `--target` optional. Each test file resolves its target independently: CLI flags take priority over file directives, so you can override any file's target from the command line. When no CLI flag is given, the file directive is used as a fallback.
 
-Available directives: `target`, `target-arg` (repeatable), and `mode` (`shell` or `process`).
+Available directives: `target`, `target-arg` (repeatable), and `mode` (`shell`, `process`, or `wrap`).
 
 ## GitHub Action
 

@@ -187,11 +187,11 @@ Supported directives:
 
 | Directive | Description |
 |-----------|-------------|
-| `# target: path` | Target binary for this file. Overrides `--target` CLI flag. |
-| `# target-arg: arg` | Argument passed to the target. Repeatable for multiple args. Overrides `--target-arg` CLI flags. |
-| `# mode: shell\|process` | Execution mode. Overrides `--mode` CLI flag. Defaults to `shell`. |
+| `# target: path` | Target binary for this file. Used when no `--target` CLI flag is given. |
+| `# target-arg: arg` | Argument passed to the target. Repeatable for multiple args. Used when no `--target-arg` CLI flags are given. |
+| `# mode: shell\|process\|wrap` | Execution mode. Used when no `--mode` CLI flag is given. Defaults to `shell`. |
 
-File directives take priority over CLI flags. If neither a directive nor a CLI flag provides a target, the command fails with an actionable error message.
+CLI flags take priority over file directives (per field). If neither a CLI flag nor a directive provides a target, the command fails with an actionable error message.
 
 Only one `# target` directive is allowed per file. Multiple `# target-arg` directives are collected in order.
 
