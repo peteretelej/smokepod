@@ -167,4 +167,4 @@ jobs:
 
       - name: Publish npm package
         working-directory: npm
-        run: npm publish --provenance
+        run: npm publish --provenance --access public
