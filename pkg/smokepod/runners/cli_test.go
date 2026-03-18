@@ -416,6 +416,34 @@ func TestCLIRunner_NoExpectedOutput(t *testing.T) {
 	}
 }
 
+func TestFormatDiff_WhitespaceDiffMarkers(t *testing.T) {
+	expected := []testfile.Expect{{Text: "hello ", IsRegex: false}}
+	actual := []string{"hello"}
+
+	diff, wsDiff := formatDiff(expected, actual)
+
+	if !wsDiff {
+		t.Error("Expected wsDiff=true for whitespace-only difference")
+	}
+	if !strings.Contains(diff, "·") {
+		t.Errorf("Expected · marker in diff output, got:\n%s", diff)
+	}
+}
+
+func TestFormatDiff_RegexSkipsWhitespaceMarkers(t *testing.T) {
+	expected := []testfile.Expect{{Text: `hello\s+`, IsRegex: true}}
+	actual := []string{"hello  "}
+
+	diff, wsDiff := formatDiff(expected, actual)
+
+	if wsDiff {
+		t.Error("Expected wsDiff=false for regex expectations")
+	}
+	if strings.Contains(diff, "·") {
+		t.Errorf("Expected no · marker for regex diff, got:\n%s", diff)
+	}
+}
+
 func TestCLIRunner_SectionName(t *testing.T) {
 	c, ctx, cancel := setupTestContainer(t)
 	defer cancel()

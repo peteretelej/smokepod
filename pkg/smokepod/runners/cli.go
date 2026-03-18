@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/peteretelej/smokepod/internal/testfile"
+	"github.com/peteretelej/smokepod/internal/whitespace"
 )
 
 // CLIRunner executes CLI tests in a container.
@@ -80,26 +81,32 @@ func (r *CLIRunner) runCommand(ctx context.Context, cmd testfile.Command) Comman
 
 	// Compare stdout expectations
 	if len(stdoutExpected) > 0 {
-		if err := r.compareOutput(stdoutExpected, strings.TrimRight(execResult.Stdout, "\n")); err != nil {
+		err, wsDiff := r.compareOutput(stdoutExpected, strings.TrimRight(execResult.Stdout, "\n"))
+		if err != nil {
 			result.Passed = false
+			result.WhitespaceDiff = wsDiff
 			result.Error = fmt.Sprintf("stdout: %s", err.Error())
 			return result
 		}
+		result.WhitespaceDiff = wsDiff
 	}
 
 	// Compare stderr expectations
 	if len(stderrExpected) > 0 {
-		if err := r.compareOutput(stderrExpected, strings.TrimRight(execResult.Stderr, "\n")); err != nil {
+		err, wsDiff := r.compareOutput(stderrExpected, strings.TrimRight(execResult.Stderr, "\n"))
+		if err != nil {
 			result.Passed = false
+			result.WhitespaceDiff = result.WhitespaceDiff || wsDiff
 			result.Error = fmt.Sprintf("stderr: %s", err.Error())
 			return result
 		}
+		result.WhitespaceDiff = result.WhitespaceDiff || wsDiff
 	}
 
 	return result
 }
 
-func (r *CLIRunner) compareOutput(expected []testfile.Expect, actual string) error {
+func (r *CLIRunner) compareOutput(expected []testfile.Expect, actual string) (error, bool) {
 	actualLines := strings.Split(actual, "\n")
 
 	// Handle empty actual output
@@ -108,30 +115,37 @@ func (r *CLIRunner) compareOutput(expected []testfile.Expect, actual string) err
 	}
 
 	if len(actualLines) != len(expected) {
+		diff, wsDiff := formatDiff(expected, actualLines)
 		return fmt.Errorf("line count: got %d, want %d\n%s",
-			len(actualLines), len(expected), formatDiff(expected, actualLines))
+			len(actualLines), len(expected), diff), wsDiff
 	}
 
+	hasWSDiff := false
 	for i, exp := range expected {
 		actualLine := actualLines[i]
 		if exp.IsRegex {
 			matched, err := regexp.MatchString(exp.Text, actualLine)
 			if err != nil {
-				return fmt.Errorf("line %d: invalid regex %q: %v", exp.Line, exp.Text, err)
+				return fmt.Errorf("line %d: invalid regex %q: %v", exp.Line, exp.Text, err), false
 			}
 			if !matched {
 				return fmt.Errorf("line %d: regex mismatch\n  pattern: %s\n  actual:  %s",
-					exp.Line, exp.Text, actualLine)
+					exp.Line, exp.Text, actualLine), false
 			}
 		} else {
 			if actualLine != exp.Text {
+				if whitespace.IsWhitespaceDiff(exp.Text, actualLine) {
+					hasWSDiff = true
+					return fmt.Errorf("line %d: mismatch\n  want: %s\n  got:  %s",
+						exp.Line, whitespace.RenderWhitespace(exp.Text), whitespace.RenderWhitespace(actualLine)), true
+				}
 				return fmt.Errorf("line %d: mismatch\n  want: %s\n  got:  %s",
-					exp.Line, exp.Text, actualLine)
+					exp.Line, exp.Text, actualLine), false
 			}
 		}
 	}
 
-	return nil
+	return nil, hasWSDiff
 }
 
 func expectSuffix(exp testfile.Expect) string {
@@ -148,8 +162,9 @@ func expectSuffix(exp testfile.Expect) string {
 	return " (" + strings.Join(parts, ",") + ")"
 }
 
-func formatDiff(expected []testfile.Expect, actual []string) string {
+func formatDiff(expected []testfile.Expect, actual []string) (string, bool) {
 	var b strings.Builder
+	hasWSDiff := false
 	b.WriteString("--- expected\n+++ actual\n")
 
 	maxLen := len(expected)
@@ -158,14 +173,23 @@ func formatDiff(expected []testfile.Expect, actual []string) string {
 	}
 
 	for i := 0; i < maxLen; i++ {
-		if i < len(expected) {
+		if i < len(expected) && i < len(actual) {
+			suffix := expectSuffix(expected[i])
+			if !expected[i].IsRegex && whitespace.IsWhitespaceDiff(expected[i].Text, actual[i]) {
+				hasWSDiff = true
+				b.WriteString(fmt.Sprintf("- %s%s\n", whitespace.RenderWhitespace(expected[i].Text), suffix))
+				b.WriteString(fmt.Sprintf("+ %s\n", whitespace.RenderWhitespace(actual[i])))
+			} else {
+				b.WriteString(fmt.Sprintf("- %s%s\n", expected[i].Text, suffix))
+				b.WriteString(fmt.Sprintf("+ %s\n", actual[i]))
+			}
+		} else if i < len(expected) {
 			suffix := expectSuffix(expected[i])
 			b.WriteString(fmt.Sprintf("- %s%s\n", expected[i].Text, suffix))
-		}
-		if i < len(actual) {
+		} else {
 			b.WriteString(fmt.Sprintf("+ %s\n", actual[i]))
 		}
 	}
 
-	return b.String()
+	return b.String(), hasWSDiff
 }

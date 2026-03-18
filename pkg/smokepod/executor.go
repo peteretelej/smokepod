@@ -15,12 +15,13 @@ func convertSectionResult(r *runners.SectionResult) SectionResult {
 	commands := make([]CommandResult, len(r.Commands))
 	for i, cmd := range r.Commands {
 		commands[i] = CommandResult{
-			Command:  cmd.Command,
-			Line:     cmd.Line,
-			Expected: cmd.Expected,
-			Actual:   cmd.Actual,
-			Passed:   cmd.Passed,
-			Error:    cmd.Error,
+			Command:        cmd.Command,
+			Line:           cmd.Line,
+			Expected:       cmd.Expected,
+			Actual:         cmd.Actual,
+			Passed:         cmd.Passed,
+			Error:          cmd.Error,
+			WhitespaceDiff: cmd.WhitespaceDiff,
 		}
 	}
 	status := "fail"

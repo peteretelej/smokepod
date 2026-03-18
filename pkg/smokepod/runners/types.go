@@ -22,10 +22,11 @@ type SectionResult struct {
 
 // CommandResult contains the result for a single command.
 type CommandResult struct {
-	Command  string `json:"command"`
-	Line     int    `json:"line"`
-	Expected string `json:"expected"`
-	Actual   string `json:"actual"`
-	Passed   bool   `json:"passed"`
-	Error    string `json:"error,omitempty"`
+	Command        string `json:"command"`
+	Line           int    `json:"line"`
+	Expected       string `json:"expected"`
+	Actual         string `json:"actual"`
+	Passed         bool   `json:"passed"`
+	Error          string `json:"error,omitempty"`
+	WhitespaceDiff bool   `json:"whitespace_diff,omitempty"` // true when mismatch is whitespace-only
 }
