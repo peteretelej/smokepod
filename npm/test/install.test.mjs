@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -12,7 +13,9 @@ import {
   getReleasePlatform,
   getReleaseUrls,
   getVendorPath,
-  main
+  main,
+  replaceFileAtomically,
+  requestBuffer
 } from '../install.mjs';
 
 const FIXTURE_BINARY = Buffer.from('fixture-smokepod-binary\n', 'utf8');
@@ -191,6 +194,88 @@ test('rejects checksum mismatches', async () => {
       }),
       /Reason: checksum mismatch/
     );
+  });
+});
+
+test('surfaces request timeouts through formatted install errors', async () => {
+  await withTempPackage(async ({ packageRoot }) => {
+    await assert.rejects(
+      () => main({
+        packageRoot,
+        platform: 'linux',
+        arch: 'x64',
+        env: {},
+        requestImpl: async () => {
+          throw new Error('request timed out after 50ms fetching https://example.test/smokepod');
+        }
+      }),
+      /Reason: request timed out after 50ms fetching https:\/\/example.test\/smokepod/
+    );
+  });
+});
+
+test('times out stalled network downloads with install-friendly errors', async () => {
+  const server = http.createServer(() => {
+    // Intentionally never responds so the client timeout fires.
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const url = `http://127.0.0.1:${address.port}/stall`;
+
+  try {
+    await assert.rejects(
+      () => requestBuffer(url, { timeoutMs: 50 }),
+      /request timed out after 50ms fetching/
+    );
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('preserves the backup when replacement rollback also fails', async () => {
+  await withTempPackage(async ({ packageRoot }) => {
+    const vendorDir = path.join(packageRoot, 'vendor');
+    const paths = {
+      tempPath: path.join(vendorDir, '.smokepod.tmp'),
+      finalPath: path.join(vendorDir, 'smokepod'),
+      backupPath: path.join(vendorDir, '.smokepod.backup')
+    };
+
+    await writeFile(paths.tempPath, 'new binary');
+    await writeFile(paths.finalPath, 'old binary');
+
+    let renameCalls = 0;
+    await assert.rejects(
+      () => replaceFileAtomically(paths, {
+        rm,
+        rename: async (from, to) => {
+          renameCalls += 1;
+
+          if (renameCalls === 1) {
+            const error = new Error('target busy');
+            error.code = 'EPERM';
+            throw error;
+          }
+
+          if (renameCalls === 3) {
+            throw new Error('write failed');
+          }
+
+          if (renameCalls === 4) {
+            throw new Error('restore failed');
+          }
+
+          return rename(from, to);
+        }
+      }),
+      /write failed; rollback failed: restore failed; preserved backup/
+    );
+
+    await assert.rejects(() => access(paths.finalPath), /ENOENT/);
+    assert.equal(await readFile(paths.backupPath, 'utf8'), 'old binary');
+    assert.equal(await readFile(paths.tempPath, 'utf8'), 'new binary');
   });
 });
 

@@ -11,6 +11,7 @@ const PACKAGE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const RELEASE_REPOSITORY = 'https://github.com/peteretelej/smokepod/releases/download';
 const REDIRECT_STATUS_CODES = new Set([301, 302, 307, 308]);
 const MAX_REDIRECTS = 5;
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 function isDirectExecution(entryUrl, argv1 = process.argv[1]) {
   if (!argv1) {
@@ -145,12 +146,17 @@ async function ensureVendorDirectory(vendorDir) {
   await mkdir(vendorDir, { recursive: true });
 }
 
-async function cleanupInstallTemps(paths) {
-  await Promise.allSettled([
+async function cleanupInstallTemps(paths, { removeBackup = false } = {}) {
+  const cleanupTasks = [
     rm(paths.tempPath, { force: true }),
-    rm(paths.downloadPath, { force: true }),
-    rm(paths.backupPath, { force: true })
-  ]);
+    rm(paths.downloadPath, { force: true })
+  ];
+
+  if (removeBackup) {
+    cleanupTasks.push(rm(paths.backupPath, { force: true }));
+  }
+
+  await Promise.allSettled(cleanupTasks);
 }
 
 async function validateReadableFile(filePath) {
@@ -161,9 +167,9 @@ async function validateReadableFile(filePath) {
   }
 }
 
-async function replaceFileAtomically(paths) {
+export async function replaceFileAtomically(paths, fileOps = { rename, rm }) {
   try {
-    await rename(paths.tempPath, paths.finalPath);
+    await fileOps.rename(paths.tempPath, paths.finalPath);
     return;
   } catch (error) {
     if (!error || (error.code !== 'EEXIST' && error.code !== 'EPERM')) {
@@ -171,11 +177,11 @@ async function replaceFileAtomically(paths) {
     }
   }
 
-  await rm(paths.backupPath, { force: true });
+  await fileOps.rm(paths.backupPath, { force: true });
 
   let movedExisting = false;
   try {
-    await rename(paths.finalPath, paths.backupPath);
+    await fileOps.rename(paths.finalPath, paths.backupPath);
     movedExisting = true;
   } catch (error) {
     if (!error || error.code !== 'ENOENT') {
@@ -184,16 +190,23 @@ async function replaceFileAtomically(paths) {
   }
 
   try {
-    await rename(paths.tempPath, paths.finalPath);
+    await fileOps.rename(paths.tempPath, paths.finalPath);
   } catch (error) {
     if (movedExisting) {
-      await rename(paths.backupPath, paths.finalPath).catch(() => {});
+      try {
+        await fileOps.rename(paths.backupPath, paths.finalPath);
+      } catch (rollbackError) {
+        throw new Error(
+          `${error.message}; rollback failed: ${rollbackError.message}; preserved backup at ${paths.backupPath}`
+        );
+      }
     }
+
     throw error;
   }
 
   if (movedExisting) {
-    await rm(paths.backupPath, { force: true });
+    await fileOps.rm(paths.backupPath, { force: true });
   }
 }
 
@@ -206,15 +219,30 @@ async function finalizeInstall(paths, platform) {
   await access(paths.finalPath, constants.F_OK);
 }
 
-function requestBuffer(url) {
+export function requestBuffer(url, { timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const transport = url.startsWith('https:') ? https : http;
 
   return new Promise((resolve, reject) => {
+    let settled = false;
     const request = transport.get(url, (response) => {
       const chunks = [];
 
+      response.on('error', (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        reject(error);
+      });
+
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
         resolve({
           statusCode: response.statusCode ?? 0,
           headers: response.headers,
@@ -223,7 +251,18 @@ function requestBuffer(url) {
       });
     });
 
-    request.on('error', reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`request timed out after ${timeoutMs}ms fetching ${url}`));
+    });
+
+    request.on('error', (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error);
+    });
   });
 }
 
@@ -295,6 +334,7 @@ async function installBinary({ packageRoot, env, platform, arch, requestImpl }) 
   const version = await readPackageVersion(packageRoot);
   const paths = getInstallPaths(packageRoot, platform);
   let attemptedSource = path.join(packageRoot, getVendorPath(platform));
+  let installSucceeded = false;
 
   await ensureVendorDirectory(paths.vendorDir);
   await cleanupInstallTemps(paths);
@@ -306,6 +346,7 @@ async function installBinary({ packageRoot, env, platform, arch, requestImpl }) 
       await validateReadableFile(overridePath);
       await copyFile(overridePath, paths.tempPath);
       await finalizeInstall(paths, platform);
+      installSucceeded = true;
       return paths.finalPath;
     }
 
@@ -322,6 +363,7 @@ async function installBinary({ packageRoot, env, platform, arch, requestImpl }) 
     await writeFile(paths.downloadPath, download.binaryBuffer);
     await rename(paths.downloadPath, paths.tempPath);
     await finalizeInstall(paths, platform);
+    installSucceeded = true;
 
     return paths.finalPath;
   } catch (error) {
@@ -335,7 +377,7 @@ async function installBinary({ packageRoot, env, platform, arch, requestImpl }) 
       })
     );
   } finally {
-    await cleanupInstallTemps(paths);
+    await cleanupInstallTemps(paths, { removeBackup: installSucceeded });
   }
 }
 
