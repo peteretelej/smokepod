@@ -249,6 +249,7 @@ func TestRecord_EmptyDiscovery_NoFlag(t *testing.T) {
 		"--target", "/bin/sh",
 		"--tests", testsDir,
 		"--fixtures", fixturesDir,
+		"--update",
 	)
 	if exitCode(err) != exitConfigError {
 		t.Errorf("expected exit code %d, got %d (err: %v)", exitConfigError, exitCode(err), err)
@@ -266,6 +267,7 @@ func TestRecord_EmptyDiscovery_AllowEmpty(t *testing.T) {
 		"--target", "/bin/sh",
 		"--tests", testsDir,
 		"--fixtures", fixturesDir,
+		"--update",
 		"--allow-empty",
 	)
 	if err != nil {

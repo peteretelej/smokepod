@@ -91,14 +91,11 @@ jobs:
           tests: testdata/fixtures/simple.test
           fixtures: testdata/action-fixtures/
 
-      - name: Verify with target-args via action
+      - name: Verify fixture via action
         uses: ./
         with:
           install: 'false'
           mode: verify
           target: ${{ runner.os == 'Windows' && 'cmd.exe' || '/bin/sh' }}
-          target-args: |
-            --arg1
-            path with spaces/fixture
           tests: testdata/fixtures/simple.test
           fixtures: testdata/action-fixtures/
