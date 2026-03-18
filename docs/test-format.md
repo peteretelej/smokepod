@@ -41,6 +41,37 @@ $ curl http://localhost:8080/version
 - Sections can be targeted individually via config `run: [section1, section2]`
 - Without `run`, all sections execute in order
 
+### Expected Failures (xfail)
+
+Mark a section as expected-to-fail by adding `(xfail)` or `(xfail: reason)` after the section name:
+
+```
+## broken-whitespace (xfail)
+$ echo "  hello  "
+  hello
+
+## jq-pipe (xfail: single-quote lexing bug)
+$ echo '{}' | jq '.a | .b'
+null
+```
+
+This only affects `verify` mode. During verify:
+
+- **xfail**: the section fails as expected. Reported as `x` in dot output. Does not fail the suite.
+- **xpass**: the section unexpectedly passes. Reported as `X` in dot output. Fails the suite with an actionable message telling you to remove the marker.
+- **Partial pass** (some commands pass, some fail): treated as xfail, not xpass.
+
+The reason string is optional and freeform, typically a bug tracker reference or short description. It appears in JSON output and xpass messages.
+
+Summary output includes xfail/xpass counts:
+
+```
+RESULT: 8 passed, 2 xfail (10 total)
+RESULT: 8 passed, 2 xfail, 1 xpass [FAIL] (11 total)
+```
+
+Record mode ignores xfail markers entirely.
+
 ### Commands
 
 Prefix commands with `$ `:

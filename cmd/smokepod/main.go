@@ -651,7 +651,7 @@ func runVerify(c *cli.Context, ctx context.Context, targetExec smokepod.Target, 
 				stderrResult := smokepod.CompareOutput(expected.Stderr, result.Stderr)
 				exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
 
-				if !(stdoutResult.Matched && stderrResult.Matched && exitMatched) {
+				if !stdoutResult.Matched || !stderrResult.Matched || !exitMatched {
 					sectionPassed = false
 
 					var diffParts []string

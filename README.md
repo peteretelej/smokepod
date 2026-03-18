@@ -113,6 +113,7 @@ npx smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 | Syntax | Meaning |
 |--------|---------|
 | `## name` | Named test section |
+| `## name (xfail)` | Section expected to fail (verify mode) |
 | `$ command` | Command to execute |
 | Following lines | Expected output (exact match) |
 | `(re)` suffix | Regex matching for that line |
