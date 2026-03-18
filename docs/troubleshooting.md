@@ -2,6 +2,74 @@
 
 Common issues and solutions when using smokepod.
 
+## npm Wrapper Issues
+
+### "postinstall" did not run
+
+**Symptoms:**
+- `node_modules/smokepod/vendor/` does not contain a binary
+- `smokepod` fails immediately after install
+
+**Solutions:**
+1. Reinstall with lifecycle scripts enabled: `npm install --foreground-scripts smokepod`
+2. Check whether your package manager disabled scripts with `--ignore-scripts` or a workspace policy
+3. Re-run install with a local binary override: `SMOKEPOD_BINARY=/absolute/path/to/smokepod npm install`
+
+### Unsupported platform or architecture
+
+**Symptoms:**
+```text
+smokepod install failed
+Reason: unsupported platform: <platform>
+```
+
+**Solutions:**
+1. Confirm you are on Linux, macOS, or Windows
+2. Confirm your runtime architecture is `x64` or `arm64`
+3. Provide a local binary instead: `SMOKEPOD_BINARY=/absolute/path/to/smokepod npm install`
+4. Fall back to `go install github.com/peteretelej/smokepod/cmd/smokepod@v<version>` if you already have Go available
+
+### Checksum mismatch during install
+
+**Symptoms:**
+```text
+smokepod install failed
+Reason: checksum mismatch
+```
+
+**Solutions:**
+1. Re-run install to rule out a transient download issue
+2. Confirm the matching GitHub release still includes the expected asset and `checksums.txt`
+3. Use `SMOKEPOD_BINARY=/absolute/path/to/smokepod npm install` with a trusted local binary if you need to unblock work
+
+### Missing vendor binary
+
+**Symptoms:**
+```text
+smokepod binary is missing at .../node_modules/smokepod/vendor/smokepod
+```
+
+**Solutions:**
+1. Re-run `npm install` or `pnpm install`
+2. Check whether `postinstall` was skipped or failed earlier in the install log
+3. Remove the package and reinstall with `SMOKEPOD_BINARY` set to a known-good local binary
+
+### Recover with `SMOKEPOD_BINARY`
+
+Use a locally built or pre-downloaded binary when release downloads are unavailable:
+
+```bash
+SMOKEPOD_BINARY=/absolute/path/to/smokepod npm install --save-dev smokepod
+```
+
+The installer copies that file into `node_modules/smokepod/vendor/` and leaves the original binary in place.
+
+### Wrapper security model
+
+- GitHub release downloads are verified against `checksums.txt` before install succeeds
+- npm package provenance comes from npm trusted publishing in GitHub Actions
+- If either layer looks wrong, stop and verify the release before continuing
+
 ## Docker Issues
 
 ### "Cannot connect to Docker daemon"

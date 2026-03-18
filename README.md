@@ -20,8 +20,17 @@ Smoke test runner for CLI and containerized applications. Record expected output
 ## Installation
 
 ```bash
+# npm
+npm install --save-dev smokepod
+
+# pnpm
+pnpm add -D smokepod
+
+# Go
 go install github.com/peteretelej/smokepod/cmd/smokepod@latest
 ```
+
+When installed from npm or pnpm, the package downloads the matching release binary during `postinstall` and makes `smokepod` available to package scripts without a separate Go toolchain install.
 
 ## Usage
 
@@ -62,6 +71,19 @@ Run:
 
 ```bash
 smokepod run smokepod.yaml
+```
+
+From a Node project, you can call the npm-installed wrapper directly from package scripts:
+
+```json
+{
+  "scripts": {
+    "smoke": "smokepod run smokepod.yaml"
+  },
+  "devDependencies": {
+    "smokepod": "^0.0.0-dev"
+  }
+}
 ```
 
 ### Record and Verify
