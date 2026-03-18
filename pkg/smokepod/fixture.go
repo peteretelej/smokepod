@@ -65,6 +65,10 @@ func ReadFixture(path string) (*FixtureFile, error) {
 func FixturePathFromTest(testPath, testsDir, fixturesDir string) string {
 	relPath := testPath
 	if testsDir != "" {
+		info, err := os.Stat(testsDir)
+		if err == nil && !info.IsDir() {
+			testsDir = filepath.Dir(testsDir)
+		}
 		rel, err := filepath.Rel(testsDir, testPath)
 		if err == nil {
 			relPath = rel

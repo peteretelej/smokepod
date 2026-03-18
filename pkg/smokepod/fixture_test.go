@@ -100,6 +100,44 @@ func TestFixturePathFromTest(t *testing.T) {
 	}
 }
 
+func TestFixturePathFromTest_SingleFile(t *testing.T) {
+	// When testsDir points to a single file, FixturePathFromTest should
+	// use the file's directory as the base, not the file path itself.
+	tmpDir := t.TempDir()
+
+	// Create tests/foo.test
+	testsDir := filepath.Join(tmpDir, "tests")
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	fooPath := filepath.Join(testsDir, "foo.test")
+	if err := os.WriteFile(fooPath, []byte("## s\n$ echo hi\nhi\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FixturePathFromTest(fooPath, fooPath, "fixtures")
+	want := filepath.Join("fixtures", "foo.fixture.json")
+	if got != want {
+		t.Errorf("FixturePathFromTest(single file) = %q, want %q", got, want)
+	}
+
+	// Create tests/sub/bar.test
+	subDir := filepath.Join(testsDir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	barPath := filepath.Join(subDir, "bar.test")
+	if err := os.WriteFile(barPath, []byte("## s\n$ echo hi\nhi\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got = FixturePathFromTest(barPath, barPath, "out")
+	want = filepath.Join("out", "bar.fixture.json")
+	if got != want {
+		t.Errorf("FixturePathFromTest(single file nested) = %q, want %q", got, want)
+	}
+}
+
 func TestWriteFixtureCreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	fixturePath := filepath.Join(tmpDir, "subdir", "nested", "test.fixture.json")

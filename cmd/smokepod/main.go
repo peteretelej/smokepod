@@ -119,7 +119,7 @@ func recordCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:  "mode",
 				Usage: "Target mode: shell (default) or process",
-				Value: "shell",
+				Value: "",
 			},
 			&cli.StringFlag{
 				Name:  "run",
@@ -160,7 +160,7 @@ func verifyCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:  "mode",
 				Usage: "Target mode: shell (default) or process",
-				Value: "shell",
+				Value: "",
 			},
 			&cli.BoolFlag{
 				Name:  "fail-fast",
@@ -788,31 +788,34 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 }
 
 func resolveTarget(filename string, metadata map[string][]string, cliTarget string, cliTargetArgs []string, cliMode string) (target string, targetArgs []string, mode string, err error) {
-	// Resolve target
-	if vals, ok := metadata["target"]; ok {
-		if len(vals) > 1 {
-			return "", nil, "", fmt.Errorf("%s: multiple # target directives; only one is allowed", filename)
+	// Resolve target: CLI wins, file directive is fallback
+	target = cliTarget
+	if target == "" {
+		if vals, ok := metadata["target"]; ok {
+			if len(vals) > 1 {
+				return "", nil, "", fmt.Errorf("%s: multiple # target directives; only one is allowed", filename)
+			}
+			target = vals[0]
 		}
-		target = vals[0]
-	} else {
-		target = cliTarget
 	}
 	if target == "" {
 		return "", nil, "", fmt.Errorf("%s: no target; add a # target directive or pass --target", filename)
 	}
 
-	// Resolve target-arg
-	if vals, ok := metadata["target-arg"]; ok {
-		targetArgs = vals
-	} else {
-		targetArgs = cliTargetArgs
+	// Resolve target-arg: CLI wins, file directive is fallback
+	targetArgs = cliTargetArgs
+	if len(targetArgs) == 0 {
+		if vals, ok := metadata["target-arg"]; ok {
+			targetArgs = vals
+		}
 	}
 
-	// Resolve mode
-	if vals, ok := metadata["mode"]; ok {
-		mode = vals[0]
-	} else {
-		mode = cliMode
+	// Resolve mode: CLI wins, file directive is fallback
+	mode = cliMode
+	if mode == "" {
+		if vals, ok := metadata["mode"]; ok {
+			mode = vals[0]
+		}
 	}
 	if mode == "" {
 		mode = "shell"
