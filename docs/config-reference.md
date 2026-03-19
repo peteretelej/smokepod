@@ -133,6 +133,7 @@ smokepod record --target /bin/bash --tests tests/ --fixtures fixtures/
 | `--tests` | yes | - | Path to `.test` files |
 | `--fixtures` | yes | - | Output directory for fixtures |
 | `--update` | no | `false` | Overwrite existing fixtures |
+| `--indent` | no | `2` | JSON indent: `2`, `4`, or `tab` |
 | `--timeout` | no | `30s` | Per-command timeout |
 | `--run` | no | all | Comma-separated section names |
 | `--allow-empty` | no | `false` | Allow empty test discovery (no .test files found) |
