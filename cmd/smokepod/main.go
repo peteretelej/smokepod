@@ -410,7 +410,6 @@ func recordAction(c *cli.Context) error {
 			Source:           testFile,
 			RecordedWith:     resolvedTarget,
 			RecordedWithArgs: resolvedArgs,
-			RecordedAt:       time.Now(),
 			Platform:         platform,
 			Sections:         make(map[string][]smokepod.FixtureCommand),
 		}
@@ -437,7 +436,7 @@ func recordAction(c *cli.Context) error {
 
 		_ = targetExec.Close()
 
-		if err := smokepod.WriteFixture(fixturePath, fixture); err != nil {
+		if _, err := smokepod.WriteFixture(fixturePath, fixture, "  "); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing fixture %s: %v\n", fixturePath, err)
 			failed++
 			continue

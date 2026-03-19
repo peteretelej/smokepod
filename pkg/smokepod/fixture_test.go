@@ -1,10 +1,10 @@
 package smokepod
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestWriteAndReadFixture(t *testing.T) {
@@ -14,7 +14,6 @@ func TestWriteAndReadFixture(t *testing.T) {
 	fixture := &FixtureFile{
 		Source:       "tests/test.test",
 		RecordedWith: "/bin/bash",
-		RecordedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		Platform: PlatformInfo{
 			OS:           "darwin",
 			Arch:         "arm64",
@@ -33,7 +32,7 @@ func TestWriteAndReadFixture(t *testing.T) {
 		},
 	}
 
-	if err := WriteFixture(fixturePath, fixture); err != nil {
+	if _, err := WriteFixture(fixturePath, fixture, "  "); err != nil {
 		t.Fatalf("WriteFixture failed: %v", err)
 	}
 
@@ -145,16 +144,198 @@ func TestWriteFixtureCreatesDirectory(t *testing.T) {
 	fixture := &FixtureFile{
 		Source:       "test.test",
 		RecordedWith: "/bin/bash",
-		RecordedAt:   time.Now(),
 		Platform:     PlatformInfo{},
 		Sections:     map[string][]FixtureCommand{},
 	}
 
-	if err := WriteFixture(fixturePath, fixture); err != nil {
+	if _, err := WriteFixture(fixturePath, fixture, "  "); err != nil {
 		t.Fatalf("WriteFixture failed: %v", err)
 	}
 
 	if _, err := os.Stat(fixturePath); os.IsNotExist(err) {
 		t.Error("Fixture file was not created")
+	}
+}
+
+func TestWriteFixture_NoHTMLEscaping(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	fixture := &FixtureFile{
+		Source:       "test.test",
+		RecordedWith: "/bin/bash",
+		Platform:     PlatformInfo{},
+		Sections: map[string][]FixtureCommand{
+			"html": {
+				{
+					Line:     1,
+					Command:  "cat <<EOF && echo done",
+					Stdout:   "<b>bold</b> & fun > easy",
+					ExitCode: 0,
+				},
+			},
+		},
+	}
+
+	if _, err := WriteFixture(fixturePath, fixture, "  "); err != nil {
+		t.Fatalf("WriteFixture failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	for _, escaped := range []string{`\u003c`, `\u003e`, `\u0026`} {
+		if bytes.Contains(raw, []byte(escaped)) {
+			t.Errorf("output contains HTML-escaped sequence %s", escaped)
+		}
+	}
+}
+
+func TestWriteFixture_TabIndent(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	fixture := &FixtureFile{
+		Source:       "test.test",
+		RecordedWith: "/bin/bash",
+		Platform:     PlatformInfo{},
+		Sections:     map[string][]FixtureCommand{},
+	}
+
+	if _, err := WriteFixture(fixturePath, fixture, "\t"); err != nil {
+		t.Fatalf("WriteFixture failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	if !bytes.Contains(raw, []byte("\t\"source\"")) {
+		t.Error("expected tab-indented output")
+	}
+}
+
+func TestWriteFixture_FourSpaceIndent(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	fixture := &FixtureFile{
+		Source:       "test.test",
+		RecordedWith: "/bin/bash",
+		Platform:     PlatformInfo{},
+		Sections:     map[string][]FixtureCommand{},
+	}
+
+	if _, err := WriteFixture(fixturePath, fixture, "    "); err != nil {
+		t.Fatalf("WriteFixture failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	if !bytes.Contains(raw, []byte("    \"source\"")) {
+		t.Error("expected four-space-indented output")
+	}
+}
+
+func TestWriteFixture_SkipUnchanged(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	fixture := &FixtureFile{
+		Source:       "test.test",
+		RecordedWith: "/bin/bash",
+		Platform:     PlatformInfo{},
+		Sections:     map[string][]FixtureCommand{},
+	}
+
+	written, err := WriteFixture(fixturePath, fixture, "  ")
+	if err != nil {
+		t.Fatalf("first WriteFixture failed: %v", err)
+	}
+	if !written {
+		t.Error("first write should return true (new file)")
+	}
+
+	written, err = WriteFixture(fixturePath, fixture, "  ")
+	if err != nil {
+		t.Fatalf("second WriteFixture failed: %v", err)
+	}
+	if written {
+		t.Error("second write should return false (unchanged)")
+	}
+
+	fixture.Source = "changed.test"
+	written, err = WriteFixture(fixturePath, fixture, "  ")
+	if err != nil {
+		t.Fatalf("third WriteFixture failed: %v", err)
+	}
+	if !written {
+		t.Error("third write should return true (changed)")
+	}
+}
+
+func TestWriteFixture_TrailingNewline(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	fixture := &FixtureFile{
+		Source:       "test.test",
+		RecordedWith: "/bin/bash",
+		Platform:     PlatformInfo{},
+		Sections:     map[string][]FixtureCommand{},
+	}
+
+	if _, err := WriteFixture(fixturePath, fixture, "  "); err != nil {
+		t.Fatalf("WriteFixture failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	if len(raw) == 0 || raw[len(raw)-1] != '\n' {
+		t.Error("expected trailing newline")
+	}
+}
+
+func TestReadFixture_NoRecordedAt(t *testing.T) {
+	tmpDir := t.TempDir()
+	fixturePath := filepath.Join(tmpDir, "test.fixture.json")
+
+	content := `{
+  "source": "test.test",
+  "recorded_with": "/bin/bash",
+  "platform": {
+    "os": "linux",
+    "arch": "amd64",
+    "shell_version": "5.1.0"
+  },
+  "sections": {}
+}
+`
+	if err := os.WriteFile(fixturePath, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	fixture, err := ReadFixture(fixturePath)
+	if err != nil {
+		t.Fatalf("ReadFixture failed: %v", err)
+	}
+
+	if fixture.Source != "test.test" {
+		t.Errorf("Source = %q, want %q", fixture.Source, "test.test")
+	}
+	if fixture.RecordedWith != "/bin/bash" {
+		t.Errorf("RecordedWith = %q, want %q", fixture.RecordedWith, "/bin/bash")
+	}
+	if fixture.Platform.OS != "linux" {
+		t.Errorf("Platform.OS = %q, want %q", fixture.Platform.OS, "linux")
 	}
 }

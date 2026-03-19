@@ -1,18 +1,17 @@
 package smokepod
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 type FixtureFile struct {
 	Source           string                      `json:"source"`
 	RecordedWith     string                      `json:"recorded_with"`
 	RecordedWithArgs []string                    `json:"recorded_with_args,omitempty"`
-	RecordedAt       time.Time                   `json:"recorded_at"`
 	Platform         PlatformInfo                `json:"platform"`
 	Sections         map[string][]FixtureCommand `json:"sections"`
 }
@@ -31,21 +30,30 @@ type PlatformInfo struct {
 	ShellVersion string `json:"shell_version"`
 }
 
-func WriteFixture(path string, fixture *FixtureFile) error {
+func WriteFixture(path string, fixture *FixtureFile, indent string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("creating fixture directory: %w", err)
+		return false, fmt.Errorf("creating fixture directory: %w", err)
 	}
 
-	data, err := json.MarshalIndent(fixture, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling fixture: %w", err)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", indent)
+
+	if err := enc.Encode(fixture); err != nil {
+		return false, fmt.Errorf("marshaling fixture: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("writing fixture: %w", err)
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, buf.Bytes()) {
+		return false, nil
 	}
 
-	return nil
+	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		return false, fmt.Errorf("writing fixture: %w", err)
+	}
+
+	return true, nil
 }
 
 func ReadFixture(path string) (*FixtureFile, error) {

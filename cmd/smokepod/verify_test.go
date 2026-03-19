@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/peteretelej/smokepod/pkg/smokepod"
 	"github.com/urfave/cli/v2"
@@ -35,7 +34,6 @@ func writeFixture(t *testing.T, dir, name string, sections map[string][]smokepod
 	fixture := &smokepod.FixtureFile{
 		Source:       "test",
 		RecordedWith: "echo",
-		RecordedAt:   time.Now(),
 		Sections:     sections,
 	}
 	data, err := json.MarshalIndent(fixture, "", "  ")
