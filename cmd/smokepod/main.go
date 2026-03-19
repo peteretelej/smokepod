@@ -361,6 +361,26 @@ func recordAction(c *cli.Context) error {
 		cancel()
 	}()
 
+	// Create shared ProcessTarget when CLI provides both --mode process and --target
+	var sharedProcTarget *smokepod.ProcessTarget
+	if cliMode == "process" && cliTarget != "" {
+		if _, err := exec.LookPath(cliTarget); err != nil {
+			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
+		}
+		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
+		}
+		sharedProcTarget = pt
+		defer func() { _ = sharedProcTarget.Close() }()
+	}
+
+	closeTarget := func(t smokepod.Target) {
+		if t != nil && t != sharedProcTarget {
+			_ = t.Close()
+		}
+	}
+
 	recorded := 0
 	unchanged := 0
 	skipped := 0
@@ -403,13 +423,17 @@ func recordAction(c *cli.Context) error {
 
 		var targetExec smokepod.Target
 		if resolvedMode == "process" {
-			procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
-				failed++
-				continue
+			if sharedProcTarget != nil {
+				targetExec = sharedProcTarget
+			} else {
+				procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
+					failed++
+					continue
+				}
+				targetExec = procTarget
 			}
-			targetExec = procTarget
 		} else {
 			targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
 		}
@@ -419,7 +443,7 @@ func recordAction(c *cli.Context) error {
 		sections, err := tf.GetSections(runSections)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
-			_ = targetExec.Close()
+			closeTarget(targetExec)
 			failed++
 			continue
 		}
@@ -452,7 +476,7 @@ func recordAction(c *cli.Context) error {
 			fixture.Sections[section.Name] = commands
 		}
 
-		_ = targetExec.Close()
+		closeTarget(targetExec)
 
 		written, err := smokepod.WriteFixture(fixturePath, fixture, indent)
 		if err != nil {
@@ -530,6 +554,26 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 		}
 	}
 
+	// Create shared ProcessTarget when CLI provides both --mode process and --target
+	var sharedProcTarget *smokepod.ProcessTarget
+	if cliMode == "process" && cliTarget != "" {
+		if _, err := exec.LookPath(cliTarget); err != nil {
+			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
+		}
+		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
+		}
+		sharedProcTarget = pt
+		defer func() { _ = sharedProcTarget.Close() }()
+	}
+
+	closeTarget := func(t smokepod.Target) {
+		if t != nil && t != sharedProcTarget {
+			_ = t.Close()
+		}
+	}
+
 	reporter := smokepod.NewVerifyReporter(os.Stderr)
 
 	sectionsPassed := 0
@@ -591,17 +635,21 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 
 		var targetExec smokepod.Target
 		if resolvedMode == "process" {
-			procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
-				sectionsFailed++
-				sectionsTotal++
-				if failFast {
-					break
+			if sharedProcTarget != nil {
+				targetExec = sharedProcTarget
+			} else {
+				procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
+					sectionsFailed++
+					sectionsTotal++
+					if failFast {
+						break
+					}
+					continue
 				}
-				continue
+				targetExec = procTarget
 			}
-			targetExec = procTarget
 		} else {
 			targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
 		}
@@ -622,7 +670,7 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 				fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
 				sectionsFailed++
 				sectionsTotal++
-				_ = targetExec.Close()
+				closeTarget(targetExec)
 				if failFast {
 					break
 				}
@@ -671,7 +719,7 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 			}
 		}
 		if staleFailed && failFast {
-			_ = targetExec.Close()
+			closeTarget(targetExec)
 			break
 		}
 
@@ -697,7 +745,7 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 				}
 			}
 			if runMissingFailed && failFast {
-				_ = targetExec.Close()
+				closeTarget(targetExec)
 				break
 			}
 		}
@@ -807,7 +855,7 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 			}
 		}
 
-		_ = targetExec.Close()
+		closeTarget(targetExec)
 
 		if (sectionsFailed > 0 || sectionsXPass > 0) && failFast {
 			break

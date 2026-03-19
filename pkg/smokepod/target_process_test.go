@@ -142,11 +142,32 @@ func newTestProcessTarget(t *testing.T, mode string) *ProcessTarget {
 		stdin:     stdin,
 		decoder:   json.NewDecoder(stdoutPipe),
 		stderrBuf: newStderrTailBuffer(stderrTailMaxSize),
+		responses: make(chan readResult, 1),
+		done:      make(chan struct{}),
 	}
 	target.wg.Add(1)
 	go func() {
 		defer target.wg.Done()
 		target.drainStderr(stderrPipe)
+	}()
+	target.wg.Add(1)
+	go func() {
+		defer target.wg.Done()
+		for {
+			var resp processResponse
+			if err := target.decoder.Decode(&resp); err != nil {
+				select {
+				case target.responses <- readResult{err: fmt.Errorf("reading response%s: %w", target.stderrTail(), err)}:
+				case <-target.done:
+				}
+				return
+			}
+			select {
+			case target.responses <- readResult{resp: resp}:
+			case <-target.done:
+				return
+			}
+		}
 	}()
 
 	t.Cleanup(func() { _ = target.Close() })

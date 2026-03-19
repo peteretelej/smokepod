@@ -69,6 +69,11 @@ func (b *stderrTailBuffer) String() string {
 	return string(out)
 }
 
+type readResult struct {
+	resp processResponse
+	err  error
+}
+
 type ProcessTarget struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
@@ -76,6 +81,9 @@ type ProcessTarget struct {
 	stderrBuf *stderrTailBuffer
 	mu        sync.Mutex
 	wg        sync.WaitGroup
+	responses chan readResult
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type processRequest struct {
@@ -115,12 +123,34 @@ func NewProcessTarget(ctx context.Context, path string, args ...string) (*Proces
 		stdin:     stdin,
 		decoder:   json.NewDecoder(stdoutPipe),
 		stderrBuf: newStderrTailBuffer(stderrTailMaxSize),
+		responses: make(chan readResult, 1),
+		done:      make(chan struct{}),
 	}
 
 	pt.wg.Add(1)
 	go func() {
 		defer pt.wg.Done()
 		pt.drainStderr(stderrPipe)
+	}()
+
+	pt.wg.Add(1)
+	go func() {
+		defer pt.wg.Done()
+		for {
+			var resp processResponse
+			if err := pt.decoder.Decode(&resp); err != nil {
+				select {
+				case pt.responses <- readResult{err: fmt.Errorf("reading response%s: %w", pt.stderrTail(), err)}:
+				case <-pt.done:
+				}
+				return
+			}
+			select {
+			case pt.responses <- readResult{resp: resp}:
+			case <-pt.done:
+				return
+			}
+		}
 	}()
 
 	return pt, nil
@@ -164,23 +194,8 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 		return runners.ExecResult{}, fmt.Errorf("writing request (process may have crashed)%s: %w", p.stderrTail(), err)
 	}
 
-	type readResult struct {
-		resp processResponse
-		err  error
-	}
-
-	ch := make(chan readResult, 1)
-	go func() {
-		var resp processResponse
-		if err := p.decoder.Decode(&resp); err != nil {
-			ch <- readResult{err: fmt.Errorf("reading response%s: %w", p.stderrTail(), err)}
-			return
-		}
-		ch <- readResult{resp: resp}
-	}()
-
 	select {
-	case r := <-ch:
+	case r := <-p.responses:
 		if r.err != nil {
 			return runners.ExecResult{}, r.err
 		}
@@ -195,6 +210,8 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 }
 
 func (p *ProcessTarget) Close() error {
+	p.closeOnce.Do(func() { close(p.done) })
+
 	if err := p.stdin.Close(); err != nil {
 		return fmt.Errorf("closing stdin: %w", err)
 	}
@@ -214,7 +231,9 @@ func (p *ProcessTarget) Close() error {
 		}
 		return nil
 	case <-time.After(5 * time.Second):
-		return p.killProcess()
+		err := p.killProcess()
+		p.wg.Wait()
+		return err
 	}
 }
 
