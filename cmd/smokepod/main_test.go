@@ -573,6 +573,7 @@ func TestCLI_RecordIndentFlag(t *testing.T) {
 
 			args := []string{
 				"smokepod", "record",
+				"--update",
 				"--tests", filepath.Join(tmpDir, "tests"),
 				"--fixtures", fixturesDir,
 				"--target", "echo",
