@@ -190,10 +190,12 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 	if p.pendingDrain {
 		select {
 		case <-p.responses:
+			p.pendingDrain = false
 		case <-p.done:
 			return runners.ExecResult{}, fmt.Errorf("process target closed while draining stale response")
+		case <-ctx.Done():
+			return runners.ExecResult{}, fmt.Errorf("draining stale response: %w", ctx.Err())
 		}
-		p.pendingDrain = false
 	}
 
 	req := processRequest{Command: command}
