@@ -232,4 +232,4 @@ The [`examples/`](examples/) directory has complete working setups:
 
 ## License
 
-MIT
+Apache-2.0
