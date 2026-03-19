@@ -75,15 +75,16 @@ type readResult struct {
 }
 
 type ProcessTarget struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	decoder   *json.Decoder
-	stderrBuf *stderrTailBuffer
-	mu        sync.Mutex
-	wg        sync.WaitGroup
-	responses chan readResult
-	done      chan struct{}
-	closeOnce sync.Once
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	decoder      *json.Decoder
+	stderrBuf    *stderrTailBuffer
+	mu           sync.Mutex
+	wg           sync.WaitGroup
+	responses    chan readResult
+	done         chan struct{}
+	closeOnce    sync.Once
+	pendingDrain bool // true when a previous Exec timed out and left an unread response
 }
 
 type processRequest struct {
@@ -184,6 +185,17 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Drain the stale response from a previous timed-out Exec before sending
+	// a new command, so the subprocess stays in sync (one response per request).
+	if p.pendingDrain {
+		select {
+		case <-p.responses:
+		case <-p.done:
+			return runners.ExecResult{}, fmt.Errorf("process target closed while draining stale response")
+		}
+		p.pendingDrain = false
+	}
+
 	req := processRequest{Command: command}
 	reqData, err := json.Marshal(req)
 	if err != nil {
@@ -205,6 +217,7 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 			ExitCode: r.resp.ExitCode,
 		}, nil
 	case <-ctx.Done():
+		p.pendingDrain = true
 		return runners.ExecResult{}, ctx.Err()
 	}
 }

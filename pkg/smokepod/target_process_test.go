@@ -301,6 +301,31 @@ func TestProcessTarget_ExecTimeout(t *testing.T) {
 	}
 }
 
+func TestProcessTarget_ExecAfterTimeout(t *testing.T) {
+	t.Parallel()
+	target := newTestProcessTarget(t, "")
+
+	// First Exec with an already-expired context: the command is written
+	// to stdin but the response is abandoned due to timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	time.Sleep(5 * time.Millisecond)
+
+	_, err := target.Exec(ctx, "echo stale")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+
+	// Second Exec must get its own response, not the stale one.
+	result, err := target.Exec(context.Background(), "echo fresh")
+	if err != nil {
+		t.Fatalf("second Exec failed: %v", err)
+	}
+	if result.Stdout != "fresh\n" {
+		t.Errorf("Stdout = %q, want %q (got stale response?)", result.Stdout, "fresh\n")
+	}
+}
+
 func TestProcessTarget_Close(t *testing.T) {
 	t.Parallel()
 	target := newTestProcessTarget(t, "")
