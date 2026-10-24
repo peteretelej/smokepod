@@ -163,7 +163,7 @@ If output embeds volatile values, record-time and verify-time values never match
 # normalize: timestamps, uuids, paths
 ```
 
-See [Test File Format](test-format.md#normalization-filters) for the built-in filter list. For whole-line flexibility, use ` (re)` (pattern), ` (norm)` (whitespace- and case-insensitive), or ` (json)` (structural, key order independent) suffixes.
+See [Test File Format](reference/test-format.md#normalization-filters) for the built-in filter list. For whole-line flexibility, use ` (re)` (pattern), ` (norm)` (whitespace- and case-insensitive), or ` (json)` (structural, key order independent) suffixes.
 
 If a section is genuinely flaky (passes sometimes, fails others), `verify --repeat k` runs every section k times and fails unless every run matches; the failure names how many runs diverged, so flakiness is distinguishable from a real behavior change.
 

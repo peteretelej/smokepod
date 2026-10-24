@@ -22,7 +22,7 @@ tests:
     args: ["--grep", "@smoke"]  # optional: pass-through to playwright
 ```
 
-See [config-reference.md](config-reference.md) for all Playwright test fields.
+See [config-reference.md](reference/config-reference.md) for all Playwright test fields.
 
 ## Project Requirements
 

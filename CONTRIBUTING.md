@@ -79,12 +79,16 @@ smokepod/
 ├── examples/               # Usage examples
 ├── npm/                    # npm wrapper package
 ├── scripts/                # Hooks and maintenance scripts
-└── docs/                   # Documentation
+└── docs/                   # Documentation (index: docs/README.md)
 ```
 
 CLI commands stay thin: behavioral flows live as package entry points in
 `pkg/smokepod` (`Record`, `Verify`, `PlanUpdate`/`Apply`, `Init`, `ServeMCP`),
 and command wiring uses urfave/cli v3 (`cli.Command`, `cmd.Run(ctx, os.Args)`).
+Code conventions live in
+[docs/coding-conventions.md](docs/coding-conventions.md). A change that
+alters behavior updates the affected docs page in the same change; the docs
+index ([docs/README.md](docs/README.md)) groups pages by reader job.
 
 ## Making Changes
 
@@ -97,10 +101,10 @@ and command wiring uses urfave/cli v3 (`cli.Command`, `cmd.Run(ctx, os.Args)`).
 
 ## Code Style
 
-- Follow standard Go conventions
-- Run `gofmt` or let your editor handle formatting
-- Keep functions focused and small
-- Add tests for new functionality
+Code conventions live in
+[docs/coding-conventions.md](docs/coding-conventions.md): standard Go
+formatting (`gofmt`), the thin-CLI/library split, protected surfaces
+(fixtures, manifest, `verify --json` contract), and test placement.
 
 ## Releasing
 

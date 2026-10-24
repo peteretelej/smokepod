@@ -3,7 +3,7 @@
 Use smokepod as a reference-derived grader inside eval platforms. Both
 adapters shell out to `smokepod verify --json` and turn the result into their
 platform's score, surfacing per-section diffs as the failure reason. See
-[`docs/evals.md`](../../docs/evals.md) for the JSON contract and the
+[`docs/evals.md`](../../docs/)evals.md) for the JSON contract and the
 parity-not-correctness caveats.
 
 - [`promptfoo/`](promptfoo/) - custom Python assertion (`smokepod_assert.py`)

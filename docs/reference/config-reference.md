@@ -222,7 +222,7 @@ smokepod probe --target /bin/bash --tests tests/ --fixtures fixtures/
 - **shell** (default): Executes commands via the target executable using `target ...target_args -c <command>`. The target must accept `-c` to run a command string. Best for recording from `/bin/bash` or `/bin/sh` and verifying against custom shells.
 - **process**: Runs the target executable directly (`target ...target_args`) and communicates via newline-delimited JSON-RPC 2.0 on stdin/stdout. The target process receives `{"jsonrpc":"2.0","id":1,"method":"exec","params":{"command":"..."}}` and responds with `{"jsonrpc":"2.0","id":1,"result":{"stdout":"...","stderr":"...","exit_code":0}}`. No shell wrapping is applied.
 
-  Compatibility: `smokepod verify --legacy-framing` temporarily restores the pre-JSON-RPC protocol (`{"command":"..."}` / `{"stdout","stderr","exit_code"}`); it is removed in the next release. See [troubleshooting](troubleshooting.md#process-mode-framing-changed-in-v120).
+  Compatibility: `smokepod verify --legacy-framing` temporarily restores the pre-JSON-RPC protocol (`{"command":"..."}` / `{"stdout","stderr","exit_code"}`); it is removed in the next release. See [troubleshooting](../troubleshooting.md#process-mode-framing-changed-v120).
 
 ## Command-Line Overrides
 

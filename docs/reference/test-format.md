@@ -392,7 +392,7 @@ Structural failures (stale or missing sections, command count mismatches) are re
 
 To accept legitimate changes, run `smokepod update`: it re-records only the drifted fixtures (or everything with `--all`), renders old-vs-new output per section, and rewrites fixtures plus manifest only after explicit approval (interactive confirmation, or `--yes` for scripts and agents). Without approval nothing is changed and the exit code is non-zero. Like `record`, `update` refuses to run in CI environments; CI baseline changes go through reviewed PRs.
 
-Using this baseline as a gate for agent-driven changes? See [Agent Integration](agent-integration.md) for hook recipes, MCP config, and an AGENTS.md contract that keep agents from re-recording their way to green.
+Using this baseline as a gate for agent-driven changes? See [Agent Integration](../agent-integration.md) for hook recipes, MCP config, and an AGENTS.md contract that keep agents from re-recording their way to green.
 
 `smokepod probe` is a self-test for the protection layer: it copies your fixtures to a temporary directory, tampers with one recorded value, and asserts that `verify` catches it and names the tampered file. It exits 0 with `protection verified` when detection works.
 

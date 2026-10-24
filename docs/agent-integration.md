@@ -77,21 +77,18 @@ If you install smokepod via `go install`, replace the `npx` command with
 
 ## Skills
 
-Both skills teach the guardrail loop (init, verify, update-with-review, and the
-"never re-record to green" rule). Copy them into your project:
-
-- Claude Code: `.claude/skills/smokepod-guardrail/` in this repo ->
-  `.claude/skills/smokepod-guardrail/` in yours.
-- OpenCode: `.opencode/skill/smokepod-guardrail/` in this repo ->
-  `.opencode/skill/smokepod-guardrail/` in yours (`.opencode/skills/` also
-  works; both layouts are discovered).
+The skill teaches the guardrail loop (init, verify, update-with-review, and the
+"never re-record to green" rule). It ships in this repo at
+`.agents/skills/smokepod-guardrail/`; copy that folder into the skills
+directory your agent reads (`.agents/skills/` in your project works for
+OpenCode and anything that follows the agent-skills layout).
 
 ## Claude Code hooks
 
 Hooks run shell commands at fixed points and feed exit code 2 stderr back to
 Claude. `verify` prints its progress, `CHANGES` block, and `RESULT` line to
-stderr, so a failing run puts the exact diff in front of the agent. Project
-hooks live in `.claude/settings.json`:
+stderr, so a failing run puts the exact diff in front of the agent. In your
+project, hooks live in `.claude/settings.json`:
 
 ```json
 {

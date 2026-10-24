@@ -47,7 +47,7 @@ After install, use `smokepod` from package scripts or through your package manag
 - [Full documentation on GitHub](https://github.com/peteretelej/smokepod)
 - [Agent integration](https://github.com/peteretelej/smokepod/blob/main/docs/agent-integration.md) - MCP config, hook recipes, and an AGENTS.md contract
 - [Troubleshooting](https://github.com/peteretelej/smokepod/blob/main/docs/troubleshooting.md)
-- [Configuration reference](https://github.com/peteretelej/smokepod/blob/main/docs/config-reference.md)
+- [Configuration reference](https://github.com/peteretelej/smokepod/blob/main/docs/reference/config-reference.md)
 
 ## Local development
 

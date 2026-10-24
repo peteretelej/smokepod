@@ -85,4 +85,4 @@ code.
 - MCP config, hook recipes, and an AGENTS.md contract template:
   `docs/agent-integration.md` in the smokepod repo.
 - Full `.test` syntax (normalization, match tiers, directives):
-  `docs/test-format.md`.
+  `docs/reference/test-format.md`.

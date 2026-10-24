@@ -4,7 +4,7 @@ A record-once, verify-anywhere battery that measures how much of a CLI's
 stable behavior a sandbox preserves. Record the baseline on a reference
 host, then verify it inside a sandbox through a small POSIX shim that speaks
 smokepod's process-mode JSON-RPC framing. See
-[`docs/sandboxes.md`](../../docs/sandboxes.md) for the conformance idea, the
+[`docs/sandboxes.md`](../../docs/)sandboxes.md) for the conformance idea, the
 documented divergence classes, and the fresh-from-template rule.
 
 The battery (`conformance.test`) probes behavior a host and a sandbox should
@@ -59,7 +59,7 @@ sh run-daytona.sh
 
 Credentials come from the environment only; nothing is committed. Create the
 sandbox fresh from its template before verifying: fresh-from-template is the
-comparison state (see [`docs/sandboxes.md`](../../docs/sandboxes.md)).
+comparison state (see [`docs/sandboxes.md`](../../docs/)sandboxes.md)).
 
 ## Observed results (reference run)
 
