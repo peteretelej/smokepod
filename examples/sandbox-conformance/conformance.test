@@ -1,0 +1,66 @@
+# Sandbox conformance battery
+# Probes stable behavior a reference host and a sandbox should agree on.
+# Record once on the reference host, then verify inside a sandbox through
+# shim.sh. See README.md for the commands and docs/sandboxes.md for the
+# divergence classes behind the xfail markers.
+
+# target: /bin/sh
+# mode: shell
+# normalize: timestamps,paths
+
+## cpu-count (xfail: provider-allocated CPU count, not inherited from the host - daytona.io/docs/en/isolation)
+$ nproc
+8
+
+## meminfo-header (xfail: busybox column spacing differs from GNU procps - musl/busybox tooling differences)
+$ free -m | head -1
+               total        used        free      shared  buff/cache   available
+
+## identity
+$ id -u root
+0
+
+$ id -un root
+root
+
+## working-dir
+$ cd /tmp && pwd
+/tmp
+
+## printf-ordering
+$ printf 'first\nsecond\nthird\n'
+first
+second
+third
+
+## wc-pipe
+$ printf 'a\nb\nc\n' | wc -l
+3
+
+## exit-codes
+$ exit 3
+[exit:3]
+
+$ false
+[exit:1]
+
+## stderr-routing
+$ echo streamed-to-stderr >&2
+streamed-to-stderr (stderr)
+
+$ sh -c 'echo boom >&2; exit 7'
+boom (stderr)
+[exit:7]
+
+## text-tools
+$ printf 'b\na\nc\n' | LC_ALL=C sort
+a
+b
+c
+
+$ printf 'alpha:1\n' | LC_ALL=C cut -d: -f1
+alpha
+
+## clock
+$ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-10-24T18:00:00Z

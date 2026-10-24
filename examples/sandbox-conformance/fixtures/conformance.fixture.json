@@ -1,0 +1,129 @@
+{
+  "source": "conformance.test",
+  "recorded_with": "/bin/sh",
+  "platform": {
+    "os": "linux",
+    "arch": "amd64",
+    "shell_version": ""
+  },
+  "sections": {
+    "clock": [
+      {
+        "line": 65,
+        "command": "date -u +%Y-%m-%dT%H:%M:%SZ",
+        "stdout": "2026-10-24T18:25:07Z\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "cpu-count": [
+      {
+        "line": 12,
+        "command": "nproc",
+        "stdout": "8\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "exit-codes": [
+      {
+        "line": 41,
+        "command": "exit 3",
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 3
+      },
+      {
+        "line": 44,
+        "command": "false",
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 1
+      }
+    ],
+    "identity": [
+      {
+        "line": 20,
+        "command": "id -u root",
+        "stdout": "0\n",
+        "stderr": "",
+        "exit_code": 0
+      },
+      {
+        "line": 23,
+        "command": "id -un root",
+        "stdout": "root\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "meminfo-header": [
+      {
+        "line": 16,
+        "command": "free -m | head -1",
+        "stdout": "               total        used        free      shared  buff/cache   available\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "printf-ordering": [
+      {
+        "line": 31,
+        "command": "printf 'first\\nsecond\\nthird\\n'",
+        "stdout": "first\nsecond\nthird\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "stderr-routing": [
+      {
+        "line": 48,
+        "command": "echo streamed-to-stderr >&2",
+        "stdout": "",
+        "stderr": "streamed-to-stderr\n",
+        "exit_code": 0
+      },
+      {
+        "line": 51,
+        "command": "sh -c 'echo boom >&2; exit 7'",
+        "stdout": "",
+        "stderr": "boom\n",
+        "exit_code": 7
+      }
+    ],
+    "text-tools": [
+      {
+        "line": 56,
+        "command": "printf 'b\\na\\nc\\n' | LC_ALL=C sort",
+        "stdout": "a\nb\nc\n",
+        "stderr": "",
+        "exit_code": 0
+      },
+      {
+        "line": 61,
+        "command": "printf 'alpha:1\\n' | LC_ALL=C cut -d: -f1",
+        "stdout": "alpha\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "wc-pipe": [
+      {
+        "line": 37,
+        "command": "printf 'a\\nb\\nc\\n' | wc -l",
+        "stdout": "3\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "working-dir": [
+      {
+        "line": 27,
+        "command": "cd /tmp && pwd",
+        "stdout": "/tmp\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ]
+  }
+}
