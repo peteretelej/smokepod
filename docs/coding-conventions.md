@@ -40,6 +40,10 @@ dev loop live in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 - Command-level tests live in `cmd/smokepod` tests (flag surfaces,
   exit codes); package behavior tests in `pkg/smokepod`.
+- Tests exercising the record/update CI guards must control the `CI`
+  env var explicitly (`t.Setenv("CI", ...)`): GitHub runners run with
+  `CI=true`, so an uncontrolled test takes the guard path and fails
+  there while passing locally.
 - New behavior ships with tests in the same change; the pre-push gate
   runs `go test -short -race ./...` and CI runs the full suite
   including Docker-dependent tests.
