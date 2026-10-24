@@ -36,6 +36,7 @@ func main() {
 		Usage:   "Smoke test runner for CLI and containerized applications",
 		Version: smokepod.VersionString(),
 		Commands: []*cli.Command{
+			initCommand(),
 			runCommand(),
 			validateCommand(),
 			recordCommand(),
@@ -88,6 +89,37 @@ func validateCommand() *cli.Command {
 		Usage:     "Validate config without running tests",
 		ArgsUsage: "<config.yaml>",
 		Action:    validateAction,
+	}
+}
+
+func initCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "init",
+		Usage: "Scaffold a smoke test and record its baseline",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "target",
+				Usage: "Target executable to probe and record (omit for a commented template)",
+			},
+			&cli.StringFlag{
+				Name:  "dir",
+				Usage: "Directory for the scaffolded .test file",
+				Value: "tests",
+			},
+			&cli.StringSliceFlag{
+				Name:  "probe",
+				Usage: `Extra target command to probe (repeatable), e.g. --probe "greet"`,
+			},
+			&cli.BoolFlag{
+				Name:  "force",
+				Usage: "Overwrite the .test file and baseline init generates",
+			},
+			&cli.BoolFlag{
+				Name:  "json",
+				Usage: "Print scaffolded files and next commands as JSON",
+			},
+		},
+		Action: initAction,
 	}
 }
 
@@ -402,50 +434,28 @@ func validateAction(ctx context.Context, cmd *cli.Command) error {
 }
 
 func recordAction(ctx context.Context, cmd *cli.Command) error {
-	cliTarget := cmd.String("target")
-	cliTargetArgs := cmd.StringSlice("target-arg")
-	testsPath := cmd.String("tests")
-	fixturesPath := cmd.String("fixtures")
-	update := cmd.Bool("update")
-	timeout := cmd.Duration("timeout")
-	cliMode := cmd.String("mode")
-	runFlag := cmd.String("run")
-	allowEmpty := cmd.Bool("allow-empty")
-
 	indent, err := parseIndent(cmd.String("indent"))
 	if err != nil {
 		return cli.Exit(err.Error(), exitConfigError)
 	}
 
-	if os.Getenv("CI") != "" && !update {
+	if os.Getenv("CI") != "" && !cmd.Bool("update") {
 		fmt.Fprintln(os.Stderr, "Warning: CI environment detected; use --update to overwrite fixtures")
 		return cli.Exit(fmt.Sprintf("Error: %v", smokepod.ErrCIGuard), exitRuntimeError)
 	}
 
 	var runSections []string
-	if runFlag != "" {
+	if runFlag := cmd.String("run"); runFlag != "" {
 		runSections = strings.Split(runFlag, ",")
 		for i, s := range runSections {
 			runSections[i] = strings.TrimSpace(s)
 		}
 	}
 
-	testFiles, err := smokepod.FindTestFiles(testsPath)
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
-	}
-
-	if len(testFiles) == 0 {
-		if !allowEmpty {
-			return cli.Exit("no .test files found in "+testsPath+"; use --allow-empty to allow", exitConfigError)
-		}
-		return nil
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if timeout > 0 {
+	if timeout := cmd.Duration("timeout"); timeout > 0 {
 		var timeoutCancel context.CancelFunc
 		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
 		defer timeoutCancel()
@@ -458,152 +468,72 @@ func recordAction(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	// Create shared ProcessTarget when CLI provides both --mode process and --target
-	var sharedProcTarget *smokepod.ProcessTarget
-	if cliMode == "process" && cliTarget != "" {
-		if _, err := exec.LookPath(cliTarget); err != nil {
-			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
-		}
-		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
-		if err != nil {
-			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
-		}
-		sharedProcTarget = pt
-		defer func() { _ = sharedProcTarget.Close() }()
-	}
-
-	closeTarget := func(t smokepod.Target) {
-		if t != nil && t != sharedProcTarget {
-			_ = t.Close()
-		}
-	}
-
-	recorded := 0
-	unchanged := 0
-	skipped := 0
-	failed := 0
-
-	for _, testFile := range testFiles {
-		fixturePath := smokepod.FixturePathFromTest(testFile, testsPath, fixturesPath)
-
-		if !update {
-			if _, err := os.Stat(fixturePath); err == nil {
-				fmt.Fprintf(os.Stderr, "Skipping %s (fixture exists, use --update to overwrite)\n", testFile)
-				skipped++
-				continue
-			}
-		}
-
-		tf, err := testfile.Parse(testFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", testFile, err)
-			failed++
-			continue
-		}
-
-		for _, w := range tf.Warnings {
-			fmt.Fprintf(os.Stderr, "Warning: %s: %s\n", testFile, w)
-		}
-
-		resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			failed++
-			continue
-		}
-
-		if _, err := exec.LookPath(resolvedTarget); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: target %q not found in PATH\n", testFile, resolvedTarget)
-			failed++
-			continue
-		}
-
-		var targetExec smokepod.Target
-		if resolvedMode == "process" {
-			if sharedProcTarget != nil {
-				targetExec = sharedProcTarget
-			} else {
-				procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
-					failed++
-					continue
-				}
-				targetExec = procTarget
-			}
-		} else {
-			targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
-		}
-
-		platform := smokepod.DetectPlatform(ctx, targetExec)
-
-		sections, err := tf.GetSections(runSections)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
-			closeTarget(targetExec)
-			failed++
-			continue
-		}
-
-		fixture := &smokepod.FixtureFile{
-			Source:           testFile,
-			RecordedWith:     resolvedTarget,
-			RecordedWithArgs: resolvedArgs,
-			Platform:         platform,
-			Sections:         make(map[string][]smokepod.FixtureCommand),
-		}
-
-		for _, section := range sections {
-			var commands []smokepod.FixtureCommand
-			for _, tc := range section.Commands {
-				result, err := targetExec.Exec(ctx, tc.Cmd)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error executing command in %s: %v\n", testFile, err)
-					continue
-				}
-
-				commands = append(commands, smokepod.FixtureCommand{
-					Line:     tc.Line,
-					Command:  tc.Cmd,
-					Stdout:   result.Stdout,
-					Stderr:   result.Stderr,
-					ExitCode: result.ExitCode,
-				})
-			}
-			fixture.Sections[section.Name] = commands
-		}
-
-		closeTarget(targetExec)
-
-		written, err := smokepod.WriteFixture(fixturePath, fixture, indent)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing fixture %s: %v\n", fixturePath, err)
-			failed++
-			continue
-		}
-
-		if written {
-			fmt.Fprintf(os.Stderr, "Recorded %s -> %s\n", testFile, fixturePath)
-			recorded++
-		} else {
-			fmt.Fprintf(os.Stderr, "Unchanged %s\n", testFile)
-			unchanged++
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "\nSummary: %d recorded, %d unchanged, %d skipped, %d failed\n", recorded, unchanged, skipped, failed)
-
-	// Refresh the manifest so the baseline on disk stays protected.
-	manifest, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	summary, err := smokepod.Record(ctx, smokepod.RecordOptions{
+		Target:      cmd.String("target"),
+		TargetArgs:  cmd.StringSlice("target-arg"),
+		Mode:        cmd.String("mode"),
+		TestsDir:    cmd.String("tests"),
+		FixturesDir: cmd.String("fixtures"),
+		Update:      cmd.Bool("update"),
+		RunSections: runSections,
+		AllowEmpty:  cmd.Bool("allow-empty"),
+		Indent:      indent,
+	})
 	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error scanning baseline for manifest: %v", err), exitRuntimeError)
-	}
-	if err := smokepod.WriteManifest(fixturesPath, manifest); err != nil {
-		return cli.Exit(fmt.Sprintf("Error writing manifest: %v", err), exitRuntimeError)
+		exitCode := exitRuntimeError
+		if errors.Is(err, smokepod.ErrNoTestFiles) || errors.Is(err, smokepod.ErrDiscovery) {
+			exitCode = exitConfigError
+		}
+		return cli.Exit(fmt.Sprintf("Error: %v", err), exitCode)
 	}
 
-	if failed > 0 && recorded == 0 {
+	if summary.Failed > 0 && summary.Recorded == 0 {
 		return cli.Exit("all test files failed to record", exitTestFailure)
+	}
+	return nil
+}
+
+func initAction(ctx context.Context, cmd *cli.Command) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	res, err := smokepod.Init(ctx, smokepod.InitOptions{
+		Target: cmd.String("target"),
+		Dir:    cmd.String("dir"),
+		Probes: cmd.StringSlice("probe"),
+		Force:  cmd.Bool("force"),
+	})
+	if err != nil {
+		exitCode := exitRuntimeError
+		if errors.Is(err, smokepod.ErrScaffoldExists) || errors.Is(err, smokepod.ErrTargetNotFound) {
+			exitCode = exitConfigError
+		}
+		return cli.Exit(fmt.Sprintf("Error: %v", err), exitCode)
+	}
+
+	if cmd.Bool("json") {
+		data, err := json.MarshalIndent(struct {
+			Files []string `json:"files"`
+			Next  []string `json:"next"`
+		}{Files: res.Files, Next: res.Next}, "", "  ")
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("Error marshaling JSON: %v", err), exitRuntimeError)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	for _, f := range res.Files {
+		fmt.Fprintf(os.Stderr, "Wrote %s\n", f)
+	}
+	if len(res.Skipped) > 0 {
+		fmt.Fprintf(os.Stderr, "Skipped probes (command failed, commented out): %s\n", strings.Join(res.Skipped, ", "))
+	}
+	if len(res.Next) > 0 {
+		fmt.Println("Next steps:")
+		for _, next := range res.Next {
+			fmt.Printf("  %s\n", next)
+		}
 	}
 	return nil
 }
@@ -742,7 +672,7 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 			fmt.Fprintf(os.Stderr, "Warning: %s: %s\n", testFile, w)
 		}
 
-		resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
+		resolvedTarget, resolvedArgs, resolvedMode, err := smokepod.ResolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			sectionsFailed++
@@ -1074,46 +1004,6 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 	return nil
 }
 
-func resolveTarget(filename string, metadata map[string][]string, cliTarget string, cliTargetArgs []string, cliMode string) (target string, targetArgs []string, mode string, err error) {
-	// Resolve target: CLI wins, file directive is fallback
-	target = cliTarget
-	if target == "" {
-		if vals, ok := metadata["target"]; ok {
-			if len(vals) > 1 {
-				return "", nil, "", fmt.Errorf("%s: multiple # target directives; only one is allowed", filename)
-			}
-			target = vals[0]
-		}
-	}
-	if target == "" {
-		return "", nil, "", fmt.Errorf("%s: no target; add a # target directive or pass --target", filename)
-	}
-
-	// Resolve target-arg: CLI wins, file directive is fallback
-	targetArgs = cliTargetArgs
-	if len(targetArgs) == 0 {
-		if vals, ok := metadata["target-arg"]; ok {
-			targetArgs = vals
-		}
-	}
-
-	// Resolve mode: CLI wins, file directive is fallback
-	mode = cliMode
-	if mode == "" {
-		if vals, ok := metadata["mode"]; ok {
-			mode = vals[0]
-		}
-	}
-	if mode == "" {
-		mode = "shell"
-	}
-	if mode != "shell" && mode != "process" && mode != "wrap" {
-		return "", nil, "", fmt.Errorf("invalid mode %q, must be shell, process, or wrap", mode)
-	}
-
-	return target, targetArgs, mode, nil
-}
-
 func configDir(path string) string {
 	// Get directory of config file for relative path resolution
 	dir := path
@@ -1430,7 +1320,7 @@ func probeTargetPerturb(ctx context.Context, cliTarget string, cliTargetArgs []s
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("Error parsing %s: %v", targetFile, err), exitConfigError)
 	}
-	resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(targetFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
+	resolvedTarget, resolvedArgs, resolvedMode, err := smokepod.ResolveTarget(targetFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
 	if err != nil {
 		return cli.Exit(fmt.Sprintf("Error: %v", err), exitConfigError)
 	}
@@ -1518,7 +1408,7 @@ func reRecordFixture(ctx context.Context, testFile, cliTarget string, cliTargetA
 		return nil, err
 	}
 
-	resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
+	resolvedTarget, resolvedArgs, resolvedMode, err := smokepod.ResolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
 	if err != nil {
 		return nil, err
 	}

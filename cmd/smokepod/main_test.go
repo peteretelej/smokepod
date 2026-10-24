@@ -22,6 +22,7 @@ func newTestApp() *cli.Command {
 		Name:    "smokepod",
 		Version: smokepod.VersionString(),
 		Commands: []*cli.Command{
+			initCommand(),
 			runCommand(),
 			validateCommand(),
 			recordCommand(),
@@ -331,7 +332,7 @@ func TestResolveTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			target, targetArgs, mode, err := resolveTarget("test.test", tt.metadata, tt.cliTarget, tt.cliTargetArgs, tt.cliMode)
+			target, targetArgs, mode, err := smokepod.ResolveTarget("test.test", tt.metadata, tt.cliTarget, tt.cliTargetArgs, tt.cliMode)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)

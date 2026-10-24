@@ -50,6 +50,22 @@ go install github.com/peteretelej/smokepod/cmd/smokepod@latest
 
 The npm package includes a native binary for your platform, so no Go toolchain is needed.
 
+### Quickstart with `init`
+
+Skip the hand-written first test: `init` probes a binary, scaffolds `tests/smoke.test`, records a protected baseline, and prints the commands to run next:
+
+```bash
+npx smokepod init --target ./myapp
+```
+
+```
+Next steps:
+  smokepod verify --target ./myapp --tests tests --fixtures fixtures
+  smokepod update --target ./myapp --tests tests --fixtures fixtures
+```
+
+It never overwrites existing files unless you pass `--force`, and works without a target too (then it scaffolds a commented template). See [docs/init.md](docs/init.md) for all options, including `--json` output for agents.
+
 ### 1. Write a test file
 
 Create a `.test` file with commands and expected output:
@@ -225,6 +241,7 @@ The [`examples/`](examples/) directory has complete working setups:
 
 ## Documentation
 
+- [Init Guide](docs/init.md) - Scaffold tests and baselines with `smokepod init`
 - [Test File Format](docs/test-format.md) - Full `.test` file syntax
 - [Configuration Reference](docs/config-reference.md) - All config options
 - [GitHub Action](docs/github-action.md) - CI integration
