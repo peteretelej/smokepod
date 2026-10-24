@@ -78,10 +78,15 @@ If you install smokepod via `go install`, replace the `npx` command with
 ## Skills
 
 The skill teaches the guardrail loop (init, verify, update-with-review, and the
-"never re-record to green" rule). It ships in this repo at
-`.agents/skills/smokepod-guardrail/`; copy that folder into the skills
-directory your agent reads (`.agents/skills/` in your project works for
-OpenCode and anything that follows the agent-skills layout).
+"never re-record to green" rule). Install it in your project:
+
+```bash
+npx skills add peteretelej/smokepod
+```
+
+It ships in this repo at `.agents/skills/smokepod-guardrail/`; copying that
+folder into `.agents/skills/` in your project works for OpenCode and anything
+that follows the agent-skills layout.
 
 ## Claude Code hooks
 

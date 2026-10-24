@@ -94,6 +94,10 @@ func setupMCPFixtures(t *testing.T) (testsDir, fixturesDir, target string) {
 }
 
 func TestMCP_Record(t *testing.T) {
+	// CI env must be unset: the record/update CI guards (mirrored from the
+	// CLI) otherwise refuse before the tested path runs.
+	t.Setenv("CI", "")
+
 	cs := connectMCPTestClient(t)
 
 	tmp := t.TempDir()
@@ -212,6 +216,10 @@ func TestMCP_Check_PassAndFail(t *testing.T) {
 }
 
 func TestMCP_Update_ConfirmFalseDoesNotWrite(t *testing.T) {
+	// CI env must be unset: the record/update CI guards (mirrored from the
+	// CLI) otherwise refuse before the tested path runs.
+	t.Setenv("CI", "")
+
 	cs := connectMCPTestClient(t)
 	testsDir, fixturesDir, target := setupMCPFixtures(t)
 
@@ -329,6 +337,10 @@ func TestMCP_Record_CIRefusesWithoutUpdate(t *testing.T) {
 }
 
 func TestMCP_Update_ConfirmTrueApplies(t *testing.T) {
+	// CI env must be unset: the record/update CI guards (mirrored from the
+	// CLI) otherwise refuse before the tested path runs.
+	t.Setenv("CI", "")
+
 	cs := connectMCPTestClient(t)
 	testsDir, fixturesDir, target := setupMCPFixtures(t)
 

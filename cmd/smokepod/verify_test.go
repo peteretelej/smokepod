@@ -627,6 +627,9 @@ func TestVerify_MissingManifest(t *testing.T) {
 }
 
 func TestUpdate_ApprovalGate(t *testing.T) {
+	// CI env must be unset: the update CI guard (never run in CI) otherwise
+	// refuses before the approval-gate paths below are reached.
+	t.Setenv("CI", "")
 	testsDir := t.TempDir()
 	fixturesDir := t.TempDir()
 
@@ -704,6 +707,43 @@ func TestUpdate_ApprovalGate(t *testing.T) {
 	)
 	if err != nil {
 		t.Errorf("expected verify to pass after update, got %v", err)
+	}
+}
+
+func TestUpdate_CIRefusesEvenWithYes(t *testing.T) {
+	// Update never approves baseline changes in CI, even with --yes:
+	// CI approvals go through reviewed PRs, not flags.
+	t.Setenv("CI", "1")
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo hello\nhello\n")
+	fixturePath := writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"foo": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
+	})
+
+	before, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app := quietTestApp()
+	err = app.Run(context.Background(), []string{
+		"smokepod", "update",
+		"--target", "/bin/sh",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+		"--yes",
+	})
+	if err == nil {
+		t.Fatal("expected update to refuse in CI, got nil")
+	}
+	after, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Error("CI refusal rewrote fixtures")
 	}
 }
 

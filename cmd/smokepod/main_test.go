@@ -548,6 +548,9 @@ func TestCLI_AllowEmptyFlag(t *testing.T) {
 func TestCLI_Record_MissingProcessTargetIsConfigError(t *testing.T) {
 	// `record --mode process --target <missing>` is an invocation mistake,
 	// classified like the other LookPath failures (verify, update): exit 2.
+	// CI must be unset: with CI set the record guard refuses before the
+	// target lookup (different exit class, covered by the next test).
+	t.Setenv("CI", "")
 	tmpDir := t.TempDir()
 	writeTestFile(t, filepath.Join(tmpDir, "tests"), "t.test", "## s\n$ echo hi\nhi\n")
 
@@ -564,6 +567,30 @@ func TestCLI_Record_MissingProcessTargetIsConfigError(t *testing.T) {
 	}
 	if code := exitCode(err); code != exitConfigError {
 		t.Errorf("exit code = %d, want %d", code, exitConfigError)
+	}
+}
+
+func TestCLI_Record_CIRefusesWithoutUpdate(t *testing.T) {
+	// In CI, record without --update refuses (exit 3) before touching
+	// fixtures, mirroring the MCP tool's guard.
+	t.Setenv("CI", "1")
+	tmpDir := t.TempDir()
+	writeTestFile(t, filepath.Join(tmpDir, "tests"), "t.test", "## s\n$ echo hi\nhi\n")
+
+	app := quietTestApp()
+	err := app.Run(context.Background(), []string{
+		"smokepod", "record",
+		"--tests", filepath.Join(tmpDir, "tests"),
+		"--fixtures", filepath.Join(tmpDir, "fixtures"),
+	})
+	if err == nil {
+		t.Fatal("expected CI refusal for record without --update, got nil")
+	}
+	if code := exitCode(err); code != exitRuntimeError {
+		t.Errorf("exit code = %d, want %d", code, exitRuntimeError)
+	}
+	if _, statErr := os.Stat(filepath.Join(tmpDir, "fixtures")); !os.IsNotExist(statErr) {
+		t.Errorf("fixtures written despite CI refusal: %v", statErr)
 	}
 }
 

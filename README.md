@@ -19,13 +19,20 @@ outside the agent's reach, with behavior changes gated behind a reviewed
 `update` and the same gate pluggable into promptfoo or Inspect as a
 regression-eval grader.
 
-The limit, stated up front: smokepod checks **parity, not correctness** -
-the recorded reference is not a promise it was right. Review baselines
-like code.
+Smokepod checks **parity, not correctness**: the recorded reference is not
+a promise it was right, so review baselines like code.
 
 ## Quick Start
 
-As a human, or hand the same two commands to your agent:
+With an agent, install the guardrail skill first - it teaches the loop and
+the rule that makes it hold (never re-record to green):
+
+```bash
+npx skills add peteretelej/smokepod
+```
+
+Then put your agent on it: "protect ./myapp with smokepod before you
+refactor, and verify after every change." The agent drives:
 
 ```bash
 # Set up: probe the CLI, scaffold a test, record the baseline
@@ -35,8 +42,16 @@ npx smokepod init --target ./myapp
 npx smokepod verify --target ./myapp --tests tests --fixtures fixtures
 ```
 
-Install options: `npm install --save-dev smokepod` (native binaries, no Go
-needed) or `go install github.com/peteretelej/smokepod/cmd/smokepod@latest`.
+Without an agent, the same two commands work as-is. Prefer a real install
+over `npx`:
+
+```bash
+# dev dependency: native binaries, no Go needed
+npm install --save-dev smokepod
+
+# or via Go
+go install github.com/peteretelej/smokepod/cmd/smokepod@latest
+```
 
 A failing verify means behavior changed. Fix the code, or accept the change
 on purpose: `update` shows an old-vs-new diff and rewrites the baseline only
