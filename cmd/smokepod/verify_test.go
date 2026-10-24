@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -907,6 +911,81 @@ func TestVerify_JSONTier_KeyOrderIndependent(t *testing.T) {
 			t.Errorf("expected exit code %d for mismatched JSON values, got %d (err: %v)", exitTestFailure, exitCode(err), err)
 		}
 	})
+}
+
+// TestLegacyHelperProcess speaks the pre-JSON-RPC process framing
+// ({"command":...} in, {"stdout","stderr","exit_code"} out) so tests can
+// drive `verify --legacy-framing` against it, like targets behaved before
+// the protocol change.
+func TestLegacyHelperProcess(t *testing.T) {
+	if os.Getenv("SMOKEPOD_LEGACY_HELPER") != "1" {
+		return
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		var req struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			os.Exit(2)
+		}
+		cmd := exec.Command("sh", "-c", req.Command)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		exitCode := 0
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			}
+		}
+		resp := struct {
+			Stdout   string `json:"stdout"`
+			Stderr   string `json:"stderr"`
+			ExitCode int    `json:"exit_code"`
+		}{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
+		data, _ := json.Marshal(resp)
+		fmt.Println(string(data))
+	}
+	os.Exit(0)
+}
+
+func TestVerify_LegacyFraming(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo legacy hello\nlegacy hello\n")
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"foo": {{Line: 2, Command: "echo legacy hello", Stdout: "legacy hello\n", ExitCode: 0}},
+	})
+
+	// The legacy-speaking target is this test binary in helper mode.
+	target := os.Args[0]
+	args := []string{
+		"smokepod", "verify",
+		"--mode", "process",
+		"--target", target,
+		"--target-arg", "-test.run=TestLegacyHelperProcess",
+		"--target-arg", "--",
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+	}
+
+	t.Setenv("SMOKEPOD_LEGACY_HELPER", "1")
+
+	// New JSON-RPC framing against a legacy-speaking target: outputs come
+	// back empty, so verify must fail.
+	newFraming := runApp(args...)
+	if exitCode(newFraming) != exitTestFailure {
+		t.Errorf("expected exit code %d without --legacy-framing, got %d (err: %v)", exitTestFailure, exitCode(newFraming), newFraming)
+	}
+
+	// --legacy-framing keeps the old protocol working during the migration
+	// window: the same run must pass.
+	legacy := runApp(append(args, "--legacy-framing")...)
+	if legacy != nil {
+		t.Errorf("expected --legacy-framing to pass against the legacy target, got: %v", legacy)
+	}
 }
 
 func TestProbe_TargetPerturb_DetectsBehaviorChange(t *testing.T) {

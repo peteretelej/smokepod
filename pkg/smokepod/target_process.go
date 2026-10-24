@@ -78,17 +78,27 @@ type ProcessTarget struct {
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
 	decoder      *json.Decoder
+	legacy       bool // speak the pre-JSON-RPC framing (one JSON object per line)
 	stderrBuf    *stderrTailBuffer
 	mu           sync.Mutex
 	wg           sync.WaitGroup
 	responses    chan readResult
 	done         chan struct{}
 	closeOnce    sync.Once
+	nextID       int64
 	pendingDrain bool // true when a previous Exec timed out and left an unread response
 }
 
-type processRequest struct {
+// processParams is the "params" payload of a JSON-RPC exec request.
+type processParams struct {
 	Command string `json:"command"`
+}
+
+type processRequest struct {
+	JSONRPC string        `json:"jsonrpc"`
+	ID      int64         `json:"id"`
+	Method  string        `json:"method"`
+	Params  processParams `json:"params"`
 }
 
 type processResponse struct {
@@ -97,9 +107,41 @@ type processResponse struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-func NewProcessTarget(ctx context.Context, path string, args ...string) (*ProcessTarget, error) {
-	cmd := exec.CommandContext(ctx, path, args...)
+type jsonrpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
 
+type jsonrpcResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      int64           `json:"id"`
+	Result  processResponse `json:"result"`
+	Error   *jsonrpcError   `json:"error,omitempty"`
+}
+
+// NewProcessTarget starts the target executable and speaks the process-mode
+// protocol with it: newline-delimited JSON-RPC 2.0 over the target's
+// stdin/stdout. Each Exec sends
+//
+//	{"jsonrpc":"2.0","id":N,"method":"exec","params":{"command":"..."}}
+//
+// and expects the matching
+//
+//	{"jsonrpc":"2.0","id":N,"result":{"stdout":"...","stderr":"...","exit_code":N}}
+func NewProcessTarget(ctx context.Context, path string, args ...string) (*ProcessTarget, error) {
+	return startProcessTarget(exec.CommandContext(ctx, path, args...), false)
+}
+
+// NewProcessTargetLegacy is NewProcessTarget with the pre-JSON-RPC framing
+// kept for one release as `verify --legacy-framing`: request
+// {"command":"..."}, response {"stdout","stderr","exit_code"}.
+func NewProcessTargetLegacy(ctx context.Context, path string, args ...string) (*ProcessTarget, error) {
+	return startProcessTarget(exec.CommandContext(ctx, path, args...), true)
+}
+
+// startProcessTarget launches cmd (stdin/stdout/stderr pipes must not be set
+// yet) and wires up the response reader.
+func startProcessTarget(cmd *exec.Cmd, legacy bool) (*ProcessTarget, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("creating stdin pipe: %w", err)
@@ -123,6 +165,7 @@ func NewProcessTarget(ctx context.Context, path string, args ...string) (*Proces
 		cmd:       cmd,
 		stdin:     stdin,
 		decoder:   json.NewDecoder(stdoutPipe),
+		legacy:    legacy,
 		stderrBuf: newStderrTailBuffer(stderrTailMaxSize),
 		responses: make(chan readResult, 1),
 		done:      make(chan struct{}),
@@ -137,24 +180,43 @@ func NewProcessTarget(ctx context.Context, path string, args ...string) (*Proces
 	pt.wg.Add(1)
 	go func() {
 		defer pt.wg.Done()
-		for {
-			var resp processResponse
-			if err := pt.decoder.Decode(&resp); err != nil {
-				select {
-				case pt.responses <- readResult{err: fmt.Errorf("reading response%s: %w", pt.stderrTail(), err)}:
-				case <-pt.done:
-				}
-				return
-			}
-			select {
-			case pt.responses <- readResult{resp: resp}:
-			case <-pt.done:
-				return
-			}
-		}
+		pt.readResponses()
 	}()
 
 	return pt, nil
+}
+
+func (p *ProcessTarget) readResponses() {
+	for {
+		resp, err := p.readResponse()
+		select {
+		case p.responses <- readResult{resp: resp, err: err}:
+		case <-p.done:
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (p *ProcessTarget) readResponse() (processResponse, error) {
+	if p.legacy {
+		var resp processResponse
+		if err := p.decoder.Decode(&resp); err != nil {
+			return processResponse{}, fmt.Errorf("reading response%s: %w", p.stderrTail(), err)
+		}
+		return resp, nil
+	}
+
+	var resp jsonrpcResponse
+	if err := p.decoder.Decode(&resp); err != nil {
+		return processResponse{}, fmt.Errorf("reading response%s: %w", p.stderrTail(), err)
+	}
+	if resp.Error != nil {
+		return processResponse{}, fmt.Errorf("target error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+	return resp.Result, nil
 }
 
 func (p *ProcessTarget) drainStderr(r io.Reader) {
@@ -198,10 +260,19 @@ func (p *ProcessTarget) Exec(ctx context.Context, command string) (runners.ExecR
 		}
 	}
 
-	req := processRequest{Command: command}
-	reqData, err := json.Marshal(req)
-	if err != nil {
-		return runners.ExecResult{}, fmt.Errorf("marshaling request: %w", err)
+	var reqData []byte
+	if p.legacy {
+		reqData, _ = json.Marshal(struct {
+			Command string `json:"command"`
+		}{Command: command})
+	} else {
+		p.nextID++
+		reqData, _ = json.Marshal(processRequest{
+			JSONRPC: "2.0",
+			ID:      p.nextID,
+			Method:  "exec",
+			Params:  processParams{Command: command},
+		})
 	}
 
 	if _, err := fmt.Fprintf(p.stdin, "%s\n", reqData); err != nil {

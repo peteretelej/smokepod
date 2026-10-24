@@ -12,21 +12,85 @@ import (
 	"time"
 )
 
-// TestHelperProcess is invoked as a subprocess by tests. It acts as a JSONL
-// server: reads {"command":"..."} lines from stdin, executes each command via
-// sh -c, and writes {"stdout":"...","stderr":"...","exit_code":N} back.
+// jsonExecLoop reads JSON-RPC exec requests from stdin (one per line), runs
+// each command via sh -c, and answers with the matching JSON-RPC result.
+func jsonExecLoop(in *bufio.Scanner) {
+	for in.Scan() {
+		var req processRequest
+		if err := json.Unmarshal(in.Bytes(), &req); err != nil {
+			os.Exit(2)
+		}
+		resp := execCommand(req.Params.Command)
+		resp.JSONRPC = "2.0"
+		resp.ID = req.ID
+		data, _ := json.Marshal(resp)
+		fmt.Println(string(data))
+	}
+}
+
+// execCommand runs command via sh -c and builds the JSON-RPC result payload.
+func execCommand(command string) jsonrpcResponse {
+	cmd := exec.Command("sh", "-c", command)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	exitCode := 0
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+	return jsonrpcResponse{
+		Result: processResponse{
+			Stdout:   stdout.String(),
+			Stderr:   stderr.String(),
+			ExitCode: exitCode,
+		},
+	}
+}
+
+// legacyExecLoop reads legacy-framing requests ({"command":"..."}) from
+// stdin and answers with legacy-framing responses
+// ({"stdout","stderr","exit_code"}), as targets did before the JSON-RPC
+// framing.
+func legacyExecLoop(in *bufio.Scanner) {
+	for in.Scan() {
+		var req struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(in.Bytes(), &req); err != nil {
+			os.Exit(2)
+		}
+		r := execCommand(req.Command)
+		data, _ := json.Marshal(r.Result)
+		fmt.Println(string(data))
+	}
+}
+
+// TestHelperProcess is invoked as a subprocess by tests. It acts as a
+// newline-delimited JSON-RPC server: reads exec requests from stdin,
+// executes each command via sh -c, and writes the matching responses back.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("SMOKEPOD_TEST_HELPER") != "1" {
 		return
 	}
 
+	in := bufio.NewScanner(os.Stdin)
+
 	mode := os.Getenv("SMOKEPOD_TEST_MODE")
 	switch mode {
 	case "echo_args":
 		// Echo our raw os.Args as JSON, proving how we were launched
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			resp := processResponse{Stdout: fmt.Sprintf("%v", os.Args)}
+		for in.Scan() {
+			var req processRequest
+			if err := json.Unmarshal(in.Bytes(), &req); err != nil {
+				os.Exit(2)
+			}
+			resp := jsonrpcResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  processResponse{Stdout: fmt.Sprintf("%v", os.Args)},
+			}
 			data, _ := json.Marshal(resp)
 			fmt.Println(string(data))
 		}
@@ -37,65 +101,39 @@ func TestHelperProcess(t *testing.T) {
 	case "bad_json":
 		// Write invalid JSON for every request, with stderr output
 		fmt.Fprintln(os.Stderr, "helper: sending bad json")
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
+		for in.Scan() {
 			fmt.Println("not valid json {{{")
 		}
 		os.Exit(0)
 	case "stderr_output":
-		// Normal JSONL server that also writes to stderr
+		// Normal JSON-RPC server that also writes to stderr
 		fmt.Fprintln(os.Stderr, "helper: stderr output for testing")
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
+		jsonExecLoop(in)
+		os.Exit(0)
+	case "echo_request":
+		// Echo each raw request line back as the result's stdout, so tests
+		// can pin the exact wire format of the request.
+		for in.Scan() {
 			var req processRequest
-			if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			if err := json.Unmarshal(in.Bytes(), &req); err != nil {
 				os.Exit(2)
 			}
-			cmd := exec.Command("sh", "-c", req.Command)
-			var stdout, stderr strings.Builder
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			exitCode := 0
-			if err := cmd.Run(); err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					exitCode = exitErr.ExitCode()
-				}
-			}
-			resp := processResponse{
-				Stdout:   stdout.String(),
-				Stderr:   stderr.String(),
-				ExitCode: exitCode,
+			resp := jsonrpcResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  processResponse{Stdout: string(in.Bytes())},
 			}
 			data, _ := json.Marshal(resp)
 			fmt.Println(string(data))
 		}
 		os.Exit(0)
+	case "legacy":
+		// Speak the pre-JSON-RPC framing (verify --legacy-framing window).
+		legacyExecLoop(in)
+		os.Exit(0)
 	default:
-		// Normal JSONL server
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			var req processRequest
-			if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-				os.Exit(2)
-			}
-			cmd := exec.Command("sh", "-c", req.Command)
-			var stdout, stderr strings.Builder
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			exitCode := 0
-			if err := cmd.Run(); err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					exitCode = exitErr.ExitCode()
-				}
-			}
-			resp := processResponse{
-				Stdout:   stdout.String(),
-				Stderr:   stderr.String(),
-				ExitCode: exitCode,
-			}
-			data, _ := json.Marshal(resp)
-			fmt.Println(string(data))
-		}
+		// Normal JSON-RPC server
+		jsonExecLoop(in)
 		os.Exit(0)
 	}
 }
@@ -121,55 +159,25 @@ func newTestProcessTarget(t *testing.T, mode string) *ProcessTarget {
 	cmd := exec.CommandContext(context.Background(), path, args...)
 	cmd.Env = append(os.Environ(), helperEnv(mode)...)
 
-	stdin, err := cmd.StdinPipe()
+	target, err := startProcessTarget(cmd, false)
 	if err != nil {
-		t.Fatalf("StdinPipe: %v", err)
+		t.Fatalf("startProcessTarget: %v", err)
 	}
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("StdoutPipe: %v", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		t.Fatalf("StderrPipe: %v", err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	t.Cleanup(func() { _ = target.Close() })
+	return target
+}
 
-	target := &ProcessTarget{
-		cmd:       cmd,
-		stdin:     stdin,
-		decoder:   json.NewDecoder(stdoutPipe),
-		stderrBuf: newStderrTailBuffer(stderrTailMaxSize),
-		responses: make(chan readResult, 1),
-		done:      make(chan struct{}),
-	}
-	target.wg.Add(1)
-	go func() {
-		defer target.wg.Done()
-		target.drainStderr(stderrPipe)
-	}()
-	target.wg.Add(1)
-	go func() {
-		defer target.wg.Done()
-		for {
-			var resp processResponse
-			if err := target.decoder.Decode(&resp); err != nil {
-				select {
-				case target.responses <- readResult{err: fmt.Errorf("reading response%s: %w", target.stderrTail(), err)}:
-				case <-target.done:
-				}
-				return
-			}
-			select {
-			case target.responses <- readResult{resp: resp}:
-			case <-target.done:
-				return
-			}
-		}
-	}()
+func newTestLegacyProcessTarget(t *testing.T) *ProcessTarget {
+	t.Helper()
+	path, args := helperCommand()
 
+	cmd := exec.CommandContext(context.Background(), path, args...)
+	cmd.Env = append(os.Environ(), helperEnv("legacy")...)
+
+	target, err := startProcessTarget(cmd, true)
+	if err != nil {
+		t.Fatalf("startProcessTarget: %v", err)
+	}
 	t.Cleanup(func() { _ = target.Close() })
 	return target
 }
@@ -232,6 +240,23 @@ func TestProcessTarget_ExecMultipleCommands(t *testing.T) {
 		if result.Stdout != want {
 			t.Errorf("Exec %d: Stdout = %q, want %q", i, result.Stdout, want)
 		}
+	}
+}
+
+// TestProcessTarget_JSONRPCRequestFormat pins the wire format: each request
+// must be a JSON-RPC 2.0 exec object carrying the command in params.
+func TestProcessTarget_JSONRPCRequestFormat(t *testing.T) {
+	t.Parallel()
+	target := newTestProcessTarget(t, "echo_request")
+
+	result, err := target.Exec(context.Background(), "echo hello")
+	if err != nil {
+		t.Fatalf("Exec failed: %v", err)
+	}
+
+	want := `{"jsonrpc":"2.0","id":1,"method":"exec","params":{"command":"echo hello"}}`
+	if result.Stdout != want {
+		t.Errorf("Stdout = %q, want %q", result.Stdout, want)
 	}
 }
 
@@ -446,5 +471,29 @@ func TestProcessTarget_NoShellWrapping(t *testing.T) {
 	}
 	if strings.Contains(result.Stdout, "/bin/sh") {
 		t.Errorf("process appears to be launched via /bin/sh: %s", result.Stdout)
+	}
+}
+
+// TestProcessTarget_LegacyFraming pins the old protocol during the
+// migration window: a legacy target speaking {"command":...}/
+// {"stdout",...} still works through NewProcessTargetLegacy.
+func TestProcessTarget_LegacyFraming(t *testing.T) {
+	t.Parallel()
+	target := newTestLegacyProcessTarget(t)
+
+	result, err := target.Exec(context.Background(), "echo legacy hello")
+	if err != nil {
+		t.Fatalf("Exec failed: %v", err)
+	}
+	if result.Stdout != "legacy hello\n" {
+		t.Errorf("Stdout = %q, want %q", result.Stdout, "legacy hello\n")
+	}
+
+	result, err = target.Exec(context.Background(), "exit 7")
+	if err != nil {
+		t.Fatalf("Exec failed: %v", err)
+	}
+	if result.ExitCode != 7 {
+		t.Errorf("ExitCode = %d, want 7", result.ExitCode)
 	}
 }

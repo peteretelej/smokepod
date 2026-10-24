@@ -25,7 +25,7 @@ inputs:
     description: 'Path to smokepod.yaml (for run mode)'
     required: false
   target-mode:
-    description: 'Target mode: shell (runs target -c <command>) or process (JSONL over stdin/stdout)'
+    description: 'Target mode: shell (runs target -c <command>) or process (JSON-RPC over stdin/stdout)'
     default: 'shell'
   fail-fast:
     description: 'Stop on first failure'

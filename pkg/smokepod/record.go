@@ -40,6 +40,9 @@ type RecordSummary struct {
 	Unchanged int
 	Skipped   int
 	Failed    int
+	// FixturePaths lists the fixture files written during this run
+	// (paths for Recorded files only).
+	FixturePaths []string
 }
 
 // Record runs the commands from every discovered .test file against the
@@ -183,6 +186,7 @@ func Record(ctx context.Context, opts RecordOptions) (*RecordSummary, error) {
 		if written {
 			fmt.Fprintf(os.Stderr, "Recorded %s -> %s\n", testFile, fixturePath)
 			summary.Recorded++
+			summary.FixturePaths = append(summary.FixturePaths, fixturePath)
 		} else {
 			fmt.Fprintf(os.Stderr, "Unchanged %s\n", testFile)
 			summary.Unchanged++

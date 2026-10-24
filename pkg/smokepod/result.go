@@ -10,6 +10,13 @@ type Result struct {
 	Passed    bool          `json:"passed"`
 	Summary   Summary       `json:"summary"`
 	Tests     []TestResult  `json:"tests"`
+	// Changes lists the first differing expected/actual pair per failed
+	// section (verify flow only; empty when everything matched).
+	Changes []ChangeEntry `json:"changes,omitempty"`
+	// Drift lists the baseline files that changed after record (verify
+	// flow only; Passed reflects section outcomes only, drift fails the
+	// run separately).
+	Drift []Drift `json:"drift,omitempty"`
 }
 
 // Summary contains aggregate test counts.
@@ -35,7 +42,7 @@ type TestResult struct {
 // SectionResult contains results for a test file section.
 type SectionResult struct {
 	Name        string          `json:"name"`
-	Status      string          `json:"status"`                  // "pass", "fail", "xfail", "xpass"
+	Status      string          `json:"status"` // "pass", "fail", "xfail", "xpass"
 	XFailReason string          `json:"xfail_reason,omitempty"`
 	Commands    []CommandResult `json:"commands"`
 }

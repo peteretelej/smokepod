@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -43,6 +42,7 @@ func main() {
 			verifyCommand(),
 			updateCommand(),
 			probeCommand(),
+			mcpCommand(),
 		},
 	}
 
@@ -232,6 +232,10 @@ func verifyCommand() *cli.Command {
 				Usage: "Run every section k times; all runs must match to pass (default 1)",
 				Value: 1,
 			},
+			&cli.BoolFlag{
+				Name:  "legacy-framing",
+				Usage: "Process mode: speak the old JSONL protocol (removed in the next release)",
+			},
 		},
 		Action: verifyAction,
 	}
@@ -328,6 +332,18 @@ func probeCommand() *cli.Command {
 		},
 		Action: probeAction,
 	}
+}
+
+func mcpCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "mcp",
+		Usage:  "Run the smokepod MCP server (tools: record, check, update) over stdio",
+		Action: mcpAction,
+	}
+}
+
+func mcpAction(ctx context.Context, cmd *cli.Command) error {
+	return smokepod.ServeMCP(ctx, smokepod.VersionString())
 }
 
 func runAction(ctx context.Context, cmd *cli.Command) error {
@@ -539,36 +555,15 @@ func initAction(ctx context.Context, cmd *cli.Command) error {
 }
 
 func verifyAction(ctx context.Context, cmd *cli.Command) error {
-	cliTarget := cmd.String("target")
-	cliTargetArgs := cmd.StringSlice("target-arg")
-	testsPath := cmd.String("tests")
-	fixturesPath := cmd.String("fixtures")
-	cliMode := cmd.String("mode")
-	failFast := cmd.Bool("fail-fast")
-	timeout := cmd.Duration("timeout")
-	jsonOutput := cmd.Bool("json")
-	allowEmpty := cmd.Bool("allow-empty")
 	repeat := cmd.Int("repeat")
 	if repeat < 1 {
 		return cli.Exit(fmt.Sprintf("--repeat must be >= 1, got %d", repeat), exitConfigError)
 	}
 
-	testFiles, err := smokepod.FindTestFiles(testsPath)
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
-	}
-
-	if len(testFiles) == 0 {
-		if !allowEmpty {
-			return cli.Exit("no .test files found in "+testsPath+"; use --allow-empty to allow", exitConfigError)
-		}
-		return nil
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if timeout > 0 {
+	if timeout := cmd.Duration("timeout"); timeout > 0 {
 		var timeoutCancel context.CancelFunc
 		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
 		defer timeoutCancel()
@@ -581,411 +576,28 @@ func verifyAction(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	return runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput, cmd.String("run"), repeat)
-}
-
-func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast, jsonOutput bool, runFlag string, repeat int) error {
-	// Baseline protection: load the recorded manifest and compare it with the
-	// current state on disk before running anything.
-	recorded, err := smokepod.LoadManifest(fixturesPath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; baselines are protected - run `smokepod record` once with the same --tests/--fixtures to create one", exitConfigError)
-		}
-		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
-	}
-	onDisk, err := smokepod.ScanManifest(testsPath, fixturesPath)
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
-	}
-	drift := smokepod.DiffManifest(recorded, onDisk)
-
 	var runSections []string
-	if runFlag != "" {
+	if runFlag := cmd.String("run"); runFlag != "" {
 		runSections = strings.Split(runFlag, ",")
 		for i, s := range runSections {
 			runSections[i] = strings.TrimSpace(s)
 		}
 	}
 
-	// Create shared ProcessTarget when CLI provides both --mode process and --target
-	var sharedProcTarget *smokepod.ProcessTarget
-	if cliMode == "process" && cliTarget != "" {
-		if _, err := exec.LookPath(cliTarget); err != nil {
-			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
-		}
-		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
-		if err != nil {
-			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
-		}
-		sharedProcTarget = pt
-		defer func() { _ = sharedProcTarget.Close() }()
-	}
+	result, err := smokepod.Verify(ctx, smokepod.VerifyOptions{
+		Target:        cmd.String("target"),
+		TargetArgs:    cmd.StringSlice("target-arg"),
+		Mode:          cmd.String("mode"),
+		TestsDir:      cmd.String("tests"),
+		FixturesDir:   cmd.String("fixtures"),
+		RunSections:   runSections,
+		FailFast:      cmd.Bool("fail-fast"),
+		AllowEmpty:    cmd.Bool("allow-empty"),
+		Repeat:        repeat,
+		LegacyFraming: cmd.Bool("legacy-framing"),
+	})
 
-	closeTarget := func(t smokepod.Target) {
-		if t != nil && t != sharedProcTarget {
-			_ = t.Close()
-		}
-	}
-
-	reporter := smokepod.NewVerifyReporter(os.Stderr)
-
-	// Structural failures (stale/missing sections, command count mismatch)
-	// take precedence over manifest drift messaging: they already pinpoint
-	// the remediation for structure changes.
-	structuralFailure := false
-
-	sectionsPassed := 0
-	sectionsFailed := 0
-	sectionsXFail := 0
-	sectionsXPass := 0
-	sectionsTotal := 0
-	var allSectionResults []smokepod.SectionResult
-	var changeEntries []smokepod.ChangeEntry
-
-	for _, testFile := range testFiles {
-		fixturePath := smokepod.FixturePathFromTest(testFile, testsPath, fixturesPath)
-
-		fixture, err := smokepod.ReadFixture(fixturePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading fixture %s: %v\n", fixturePath, err)
-			sectionsFailed++
-			sectionsTotal++
-			if failFast {
-				break
-			}
-			continue
-		}
-
-		tf, err := testfile.Parse(testFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", testFile, err)
-			sectionsFailed++
-			sectionsTotal++
-			if failFast {
-				break
-			}
-			continue
-		}
-
-		for _, w := range tf.Warnings {
-			fmt.Fprintf(os.Stderr, "Warning: %s: %s\n", testFile, w)
-		}
-
-		resolvedTarget, resolvedArgs, resolvedMode, err := smokepod.ResolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			sectionsFailed++
-			sectionsTotal++
-			if failFast {
-				break
-			}
-			continue
-		}
-
-		if _, err := exec.LookPath(resolvedTarget); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: target %q not found in PATH\n", testFile, resolvedTarget)
-			sectionsFailed++
-			sectionsTotal++
-			if failFast {
-				break
-			}
-			continue
-		}
-
-		var targetExec smokepod.Target
-		if resolvedMode == "process" {
-			if sharedProcTarget != nil {
-				targetExec = sharedProcTarget
-			} else {
-				procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error creating process target for %s: %v\n", testFile, err)
-					sectionsFailed++
-					sectionsTotal++
-					if failFast {
-						break
-					}
-					continue
-				}
-				targetExec = procTarget
-			}
-		} else {
-			targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
-		}
-
-		// Get sections to verify from .test file
-		// When --run is specified, only get sections that exist in the .test file
-		// (missing ones are handled separately below)
-		var sections []*testfile.Section
-		if len(runSections) > 0 {
-			for _, name := range runSections {
-				if s := tf.GetSection(name); s != nil {
-					sections = append(sections, s)
-				}
-			}
-		} else {
-			sections, err = tf.GetSections(nil)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting sections from %s: %v\n", testFile, err)
-				sectionsFailed++
-				sectionsTotal++
-				closeTarget(targetExec)
-				if failFast {
-					break
-				}
-				continue
-			}
-		}
-
-		// Build set of .test section names for quick lookup
-		testSectionSet := make(map[string]bool, len(tf.Sections))
-		for name := range tf.Sections {
-			testSectionSet[name] = true
-		}
-
-		// Build the --run filter set (nil when --run is not specified)
-		var runFilterSet map[string]bool
-		if len(runSections) > 0 {
-			runFilterSet = make(map[string]bool, len(runSections))
-			for _, name := range runSections {
-				runFilterSet[name] = true
-			}
-		}
-
-		// Check for stale fixture sections
-		staleFailed := false
-		for fixtureSectionName := range fixture.Sections {
-			if testSectionSet[fixtureSectionName] {
-				// Section exists in .test file: not stale
-				continue
-			}
-			// Section is in fixture but not in .test file
-			if runFilterSet != nil && !runFilterSet[fixtureSectionName] {
-				// --run is specified and this section is outside the filter: ignore
-				continue
-			}
-			// Stale: either --run is not specified (full scope) or section is in --run filter
-			reporter.ReportFailure(fixtureSectionName, fmt.Sprintf(
-				"stale fixture section: exists in fixture but not in .test file (fixture: %s)", fixturePath,
-			))
-			reporter.ReportSection(fixtureSectionName, "fail")
-			sectionsFailed++
-			sectionsTotal++
-			allSectionResults = append(allSectionResults, smokepod.SectionResult{Name: fixtureSectionName, Status: "fail"})
-			staleFailed = true
-			structuralFailure = true
-			if failFast {
-				break
-			}
-		}
-		if staleFailed && failFast {
-			closeTarget(targetExec)
-			break
-		}
-
-		// Check for --run sections that don't exist in either .test or fixture
-		if runFilterSet != nil {
-			runMissingFailed := false
-			for _, name := range runSections {
-				if testSectionSet[name] {
-					continue // exists in .test, will be verified below
-				}
-				if _, inFixture := fixture.Sections[name]; inFixture {
-					continue // already reported as stale above
-				}
-				// Section doesn't exist anywhere
-				reporter.ReportFailure(name, "section not found in .test file or fixture")
-				reporter.ReportSection(name, "fail")
-				sectionsFailed++
-				sectionsTotal++
-				allSectionResults = append(allSectionResults, smokepod.SectionResult{Name: name, Status: "fail"})
-				runMissingFailed = true
-				if failFast {
-					break
-				}
-			}
-			if runMissingFailed && failFast {
-				closeTarget(targetExec)
-				break
-			}
-		}
-
-		for _, section := range sections {
-			sectionPassed := true
-
-			fixtureCommands, hasFixture := fixture.Sections[section.Name]
-			if !hasFixture {
-				reporter.ReportFailure(section.Name, fmt.Sprintf(
-					"missing fixture section: exists in .test but not in fixture (fixture: %s)", fixturePath,
-				))
-				reporter.ReportSection(section.Name, "fail")
-				sectionsFailed++
-				sectionsTotal++
-				structuralFailure = true
-				allSectionResults = append(allSectionResults, smokepod.SectionResult{Name: section.Name, Status: "fail"})
-				if failFast {
-					break
-				}
-				continue
-			}
-
-			// Command-count mismatch detection (bidirectional)
-			testCmdCount := len(section.Commands)
-			fixtureCmdCount := len(fixtureCommands)
-			commandCount := testCmdCount
-			countMismatch := false
-			if testCmdCount != fixtureCmdCount {
-				commandCount = min(testCmdCount, fixtureCmdCount)
-				countMismatch = true
-			}
-
-			changeAdded := false
-			for i := 0; i < commandCount; i++ {
-				tcmd := section.Commands[i]
-				failedRuns := 0
-				var mismatchDiff string
-				var entry smokepod.ChangeEntry
-				for run := 1; run <= repeat; run++ {
-					result, err := targetExec.Exec(ctx, tcmd.Cmd)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
-						sectionPassed = false
-						failedRuns++
-						continue
-					}
-
-					expected := fixtureCommands[i]
-
-					testExpected := section.Commands[i].Expected
-					stdoutResult := smokepod.CompareOutputWithExpectations(
-						expected.Stdout, result.Stdout, testExpected, false, tf.Normalize)
-					stderrResult := smokepod.CompareOutputWithExpectations(
-						expected.Stderr, result.Stderr, testExpected, true, tf.Normalize)
-					exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
-
-					if !stdoutResult.Matched || !stderrResult.Matched || !exitMatched {
-						sectionPassed = false
-						failedRuns++
-
-						// Keep the first divergent run's diff and pair so the
-						// report stays compact when runs disagree.
-						if mismatchDiff == "" {
-							var diffParts []string
-							if !stdoutResult.Matched {
-								diffParts = append(diffParts, "stdout:\n"+stdoutResult.Diff)
-							}
-							if !stderrResult.Matched {
-								diffParts = append(diffParts, "stderr:\n"+stderrResult.Diff)
-							}
-							if !exitMatched {
-								diffParts = append(diffParts, fmt.Sprintf("Exit code: expected %d, got %d", expected.ExitCode, result.ExitCode))
-							}
-							mismatchDiff = strings.Join(diffParts, "\n")
-
-							entry = smokepod.ChangeEntry{
-								File:     testFile,
-								Section:  section.Name,
-								Line:     stdoutResult.FirstLine,
-								Expected: stdoutResult.FirstExpected,
-								Actual:   stdoutResult.FirstActual,
-							}
-							if stdoutResult.Matched {
-								entry.Line = stderrResult.FirstLine
-								entry.Expected = stderrResult.FirstExpected
-								entry.Actual = stderrResult.FirstActual
-								if stderrResult.Matched {
-									entry.Line = 0
-									entry.Expected = fmt.Sprintf("exit %d", expected.ExitCode)
-									entry.Actual = fmt.Sprintf("exit %d", result.ExitCode)
-								}
-							}
-						}
-					}
-				}
-
-				if failedRuns > 0 && mismatchDiff != "" && !section.XFail {
-					name := fmt.Sprintf("%s / %s", section.Name, tcmd.Cmd)
-					if repeat > 1 {
-						name += fmt.Sprintf(" (%d/%d runs failed)", failedRuns, repeat)
-					}
-					reporter.ReportFailure(name, mismatchDiff)
-					if !changeAdded {
-						changeAdded = true
-						changeEntries = append(changeEntries, entry)
-					}
-				}
-			}
-
-			if countMismatch {
-				reporter.ReportFailure(section.Name, fmt.Sprintf(
-					"command count mismatch: .test has %d commands, fixture has %d (fixture: %s)",
-					testCmdCount, fixtureCmdCount, fixturePath,
-				))
-				sectionPassed = false
-				structuralFailure = true
-			}
-
-			// Determine section status
-			sectionsTotal++
-			var status string
-			switch {
-			case section.XFail && !sectionPassed:
-				status = "xfail"
-				sectionsXFail++
-			case section.XFail && sectionPassed:
-				status = "xpass"
-				sectionsXPass++
-				reporter.ReportXPass(section.Name, section.XFailReason, testFile, section.Line)
-			case !section.XFail && sectionPassed:
-				status = "pass"
-				sectionsPassed++
-			default:
-				status = "fail"
-				sectionsFailed++
-			}
-
-			reporter.ReportSection(section.Name, status)
-			allSectionResults = append(allSectionResults, smokepod.SectionResult{
-				Name:        section.Name,
-				Status:      status,
-				XFailReason: section.XFailReason,
-			})
-
-			if (status == "fail" || status == "xpass") && failFast {
-				break
-			}
-		}
-
-		closeTarget(targetExec)
-
-		if (sectionsFailed > 0 || sectionsXPass > 0) && failFast {
-			break
-		}
-	}
-
-	reporter.ReportChangeSummary(changeEntries)
-	reporter.ReportSummary(sectionsPassed, sectionsFailed, sectionsXFail, sectionsXPass, sectionsTotal)
-
-	if jsonOutput {
-		result := &smokepod.Result{
-			Name:      "verify",
-			Timestamp: time.Now(),
-			Passed:    sectionsFailed == 0 && sectionsXPass == 0,
-			Summary: smokepod.Summary{
-				Total:  sectionsTotal,
-				Passed: sectionsPassed,
-				Failed: sectionsFailed,
-				XFail:  sectionsXFail,
-				XPass:  sectionsXPass,
-			},
-			Tests: []smokepod.TestResult{{
-				Name:     "verify",
-				Type:     "cli",
-				Passed:   sectionsFailed == 0 && sectionsXPass == 0,
-				Sections: allSectionResults,
-			}},
-		}
+	if cmd.Bool("json") && result != nil {
 		data, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return cli.Exit(fmt.Sprintf("Error marshaling JSON: %v", err), exitRuntimeError)
@@ -993,13 +605,16 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 		fmt.Println(string(data))
 	}
 
-	if len(drift) > 0 && !structuralFailure {
-		reporter.ReportManifestDrift(drift)
-		return cli.Exit("", exitTestFailure)
-	}
-
-	if sectionsFailed > 0 || sectionsXPass > 0 {
-		return cli.Exit("", exitTestFailure)
+	if err != nil {
+		var usageErr *smokepod.UsageError
+		switch {
+		case errors.As(err, &usageErr):
+			return cli.Exit(err.Error(), exitConfigError)
+		case errors.Is(err, smokepod.ErrVerifyFailed):
+			return cli.Exit("", exitTestFailure)
+		default:
+			return cli.Exit(err.Error(), exitRuntimeError)
+		}
 	}
 	return nil
 }
@@ -1016,15 +631,6 @@ func configDir(path string) string {
 }
 
 func updateAction(ctx context.Context, cmd *cli.Command) error {
-	cliTarget := cmd.String("target")
-	cliTargetArgs := cmd.StringSlice("target-arg")
-	testsPath := cmd.String("tests")
-	fixturesPath := cmd.String("fixtures")
-	cliMode := cmd.String("mode")
-	timeout := cmd.Duration("timeout")
-	all := cmd.Bool("all")
-	yes := cmd.Bool("yes")
-
 	indent, err := parseIndent(cmd.String("indent"))
 	if err != nil {
 		return cli.Exit(err.Error(), exitConfigError)
@@ -1037,40 +643,10 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		return cli.Exit("update cannot approve baseline changes in CI; commit reviewed updates through a PR", exitRuntimeError)
 	}
 
-	recorded, err := smokepod.LoadManifest(fixturesPath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; nothing to update - run `smokepod record` once to create a protected baseline", exitConfigError)
-		}
-		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
-	}
-
-	testFiles, err := smokepod.FindTestFiles(testsPath)
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
-	}
-	if len(testFiles) == 0 {
-		return cli.Exit("no .test files found in "+testsPath, exitConfigError)
-	}
-
-	onDisk, err := smokepod.ScanManifest(testsPath, fixturesPath)
-	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
-	}
-	drift := smokepod.DiffManifest(recorded, onDisk)
-
-	// Even with an empty re-record scope (e.g. a deleted .test file), drift
-	// still needs the manifest refresh below to be accepted.
-	scope := updateScope(testFiles, testsPath, drift, all)
-	if len(drift) == 0 && !all {
-		fmt.Fprintln(os.Stderr, "Baseline in sync; nothing to update")
-		return nil
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if timeout > 0 {
+	if timeout := cmd.Duration("timeout"); timeout > 0 {
 		var timeoutCancel context.CancelFunc
 		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
 		defer timeoutCancel()
@@ -1083,63 +659,41 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	var sharedProcTarget *smokepod.ProcessTarget
-	if cliMode == "process" && cliTarget != "" {
-		if _, err := exec.LookPath(cliTarget); err != nil {
-			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
+	plan, err := smokepod.PlanUpdate(ctx, smokepod.UpdateOptions{
+		Target:      cmd.String("target"),
+		TargetArgs:  cmd.StringSlice("target-arg"),
+		Mode:        cmd.String("mode"),
+		TestsDir:    cmd.String("tests"),
+		FixturesDir: cmd.String("fixtures"),
+		All:         cmd.Bool("all"),
+		Indent:      indent,
+	})
+	if err != nil {
+		var usageErr *smokepod.UsageError
+		var reRecordErr *smokepod.ReRecordError
+		switch {
+		case errors.As(err, &usageErr):
+			return cli.Exit(err.Error(), exitConfigError)
+		case errors.As(err, &reRecordErr):
+			return cli.Exit(err.Error(), exitTestFailure)
+		default:
+			return cli.Exit(err.Error(), exitRuntimeError)
 		}
-		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
-		if err != nil {
-			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
-		}
-		sharedProcTarget = pt
-		defer func() { _ = sharedProcTarget.Close() }()
 	}
 
-	type reRecord struct {
-		fixturePath string
-		oldFixture  *smokepod.FixtureFile
-		newFixture  *smokepod.FixtureFile
-	}
-	var plan []reRecord
-	failed := 0
-	for _, testFile := range scope {
-		newFixture, err := reRecordFixture(ctx, testFile, cliTarget, cliTargetArgs, cliMode, sharedProcTarget)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error re-recording %s: %v\n", testFile, err)
-			failed++
-			continue
-		}
-		fixturePath := smokepod.FixturePathFromTest(testFile, testsPath, fixturesPath)
-		oldFixture, err := smokepod.ReadFixture(fixturePath)
-		if err != nil {
-			oldFixture = nil
-		}
-		plan = append(plan, reRecord{fixturePath: fixturePath, oldFixture: oldFixture, newFixture: newFixture})
-	}
-	if failed > 0 {
-		return cli.Exit(fmt.Sprintf("%d test file(s) failed to re-record; nothing was changed", failed), exitTestFailure)
+	if plan.Synced {
+		fmt.Fprintln(os.Stderr, "Baseline in sync; nothing to update")
+		return nil
 	}
 
 	// Render old-vs-new for review before anything is written.
-	changed := 0
-	for _, p := range plan {
-		_, _ = fmt.Fprintf(os.Stdout, "--- recorded: %s\n+++ re-recorded\n", p.fixturePath)
-		diff := renderFixtureDiff(p.oldFixture, p.newFixture)
-		if diff == "" {
-			_, _ = fmt.Fprintln(os.Stdout, "no output changes")
-		} else {
-			changed++
-			_, _ = fmt.Fprint(os.Stdout, diff)
-		}
-		_, _ = fmt.Fprintln(os.Stdout)
-	}
+	_, _ = fmt.Fprint(os.Stdout, plan.RenderDiff())
 
-	if !yes {
+	if !cmd.Bool("yes") {
 		if !isTerminal(os.Stdin) {
 			return cli.Exit("refusing to update baselines without approval; re-run with --yes for non-interactive use", exitRuntimeError)
 		}
-		fmt.Fprintf(os.Stderr, "Apply update to %d fixture(s) and refresh the manifest? [y/N] ", len(plan))
+		fmt.Fprintf(os.Stderr, "Apply update to %d fixture(s) and refresh the manifest? [y/N] ", len(plan.Updates))
 		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		answer = strings.ToLower(strings.TrimSpace(answer))
 		if answer != "y" && answer != "yes" {
@@ -1147,23 +701,9 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	written := 0
-	for _, p := range plan {
-		didWrite, err := smokepod.WriteFixture(p.fixturePath, p.newFixture, indent)
-		if err != nil {
-			return cli.Exit(fmt.Sprintf("Error writing fixture %s: %v", p.fixturePath, err), exitRuntimeError)
-		}
-		if didWrite {
-			written++
-		}
-	}
-
-	manifest, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	written, err := plan.Apply()
 	if err != nil {
-		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
-	}
-	if err := smokepod.WriteManifest(fixturesPath, manifest); err != nil {
-		return cli.Exit(fmt.Sprintf("Error writing manifest: %v", err), exitRuntimeError)
+		return cli.Exit(err.Error(), exitRuntimeError)
 	}
 
 	fmt.Fprintf(os.Stderr, "Update complete: %d fixture(s) written, manifest refreshed\n", written)
@@ -1275,17 +815,24 @@ func probeAction(ctx context.Context, cmd *cli.Command) error {
 }
 
 // runVerifyCaptured runs the verify flow against the given fixtures directory
-// with stderr captured, so the probe can inspect the failure output.
+// with the progress report captured, so the probe can inspect the failure
+// output.
 func runVerifyCaptured(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string) (string, error) {
-	old := os.Stderr
 	r, w, err := os.Pipe()
 	if err != nil {
 		return "", err
 	}
-	os.Stderr = w
-	verifyErr := runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, false, false, "", 1)
+
+	_, verifyErr := smokepod.Verify(ctx, smokepod.VerifyOptions{
+		Target:       cliTarget,
+		TargetArgs:   cliTargetArgs,
+		Mode:         cliMode,
+		TestsDir:     testsPath,
+		TestFiles:    testFiles,
+		FixturesDir:  fixturesPath,
+		ReportWriter: w,
+	})
 	_ = w.Close()
-	os.Stderr = old
 
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
@@ -1361,196 +908,6 @@ func probeTargetPerturb(ctx context.Context, cliTarget string, cliTargetArgs []s
 // shQuote single-quotes s for safe use as one shell word.
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// updateScope picks the test files to re-record: everything with --all,
-// otherwise the files behind drifted manifest entries (a drifted test file
-// implicates its fixture and vice versa).
-func updateScope(testFiles []string, testsPath string, drift []smokepod.Drift, all bool) []string {
-	if all {
-		return testFiles
-	}
-
-	driftedTests := map[string]bool{}
-	driftedFixtures := map[string]bool{}
-	for _, d := range drift {
-		if d.Tree == "tests" {
-			driftedTests[d.Path] = true
-		} else {
-			driftedFixtures[d.Path] = true
-		}
-	}
-
-	testsRoot := testsPath
-	if info, err := os.Stat(testsPath); err == nil && !info.IsDir() {
-		testsRoot = filepath.Dir(testsPath)
-	}
-
-	var scope []string
-	for _, testFile := range testFiles {
-		rel, err := filepath.Rel(testsRoot, testFile)
-		if err != nil {
-			continue
-		}
-		key := filepath.ToSlash(rel)
-		if driftedTests[key] || driftedFixtures[smokepod.FixtureKeyForTest(key)] {
-			scope = append(scope, testFile)
-		}
-	}
-	return scope
-}
-
-// reRecordFixture runs a test file's commands and builds the fixture that
-// record would write, without writing it.
-func reRecordFixture(ctx context.Context, testFile, cliTarget string, cliTargetArgs []string, cliMode string, sharedProcTarget *smokepod.ProcessTarget) (*smokepod.FixtureFile, error) {
-	tf, err := testfile.Parse(testFile)
-	if err != nil {
-		return nil, err
-	}
-
-	resolvedTarget, resolvedArgs, resolvedMode, err := smokepod.ResolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := exec.LookPath(resolvedTarget); err != nil {
-		return nil, fmt.Errorf("target %q not found in PATH", resolvedTarget)
-	}
-
-	var targetExec smokepod.Target
-	if resolvedMode == "process" {
-		if sharedProcTarget != nil {
-			targetExec = sharedProcTarget
-		} else {
-			procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
-			if err != nil {
-				return nil, err
-			}
-			targetExec = procTarget
-		}
-	} else {
-		targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
-	}
-	defer func() {
-		if targetExec != nil && targetExec != sharedProcTarget {
-			_ = targetExec.Close()
-		}
-	}()
-
-	platform := smokepod.DetectPlatform(ctx, targetExec)
-
-	sections, err := tf.GetSections(nil)
-	if err != nil {
-		return nil, err
-	}
-
-	fixture := &smokepod.FixtureFile{
-		Source:           testFile,
-		RecordedWith:     resolvedTarget,
-		RecordedWithArgs: resolvedArgs,
-		Platform:         platform,
-		Sections:         make(map[string][]smokepod.FixtureCommand),
-	}
-	for _, section := range sections {
-		commands := []smokepod.FixtureCommand{}
-		for _, tc := range section.Commands {
-			result, err := targetExec.Exec(ctx, tc.Cmd)
-			if err != nil {
-				return nil, fmt.Errorf("executing %q: %w", tc.Cmd, err)
-			}
-			commands = append(commands, smokepod.FixtureCommand{
-				Line:     tc.Line,
-				Command:  tc.Cmd,
-				Stdout:   result.Stdout,
-				Stderr:   result.Stderr,
-				ExitCode: result.ExitCode,
-			})
-		}
-		fixture.Sections[section.Name] = commands
-	}
-	return fixture, nil
-}
-
-// renderFixtureDiff renders old-vs-new fixture content per section, showing
-// only the commands and values that differ. Empty result means no changes.
-func renderFixtureDiff(oldFixture, newFixture *smokepod.FixtureFile) string {
-	sectionNames := map[string]bool{}
-	for name := range oldFixture.Sections {
-		sectionNames[name] = true
-	}
-	for name := range newFixture.Sections {
-		sectionNames[name] = true
-	}
-	sorted := make([]string, 0, len(sectionNames))
-	for name := range sectionNames {
-		sorted = append(sorted, name)
-	}
-	sort.Strings(sorted)
-
-	var out strings.Builder
-	for _, name := range sorted {
-		var section strings.Builder
-		oldCmds := oldFixture.Sections[name]
-		newCmds := newFixture.Sections[name]
-		count := len(oldCmds)
-		if len(newCmds) > count {
-			count = len(newCmds)
-		}
-		for i := 0; i < count; i++ {
-			var oc, nc *smokepod.FixtureCommand
-			if i < len(oldCmds) {
-				oc = &oldCmds[i]
-			}
-			if i < len(newCmds) {
-				nc = &newCmds[i]
-			}
-			writeCommandDiff(&section, oc, nc)
-		}
-		if section.Len() > 0 {
-			fmt.Fprintf(&out, "## %s\n", name)
-			out.WriteString(section.String())
-		}
-	}
-	return out.String()
-}
-
-func writeCommandDiff(b *strings.Builder, oc, nc *smokepod.FixtureCommand) {
-	switch {
-	case oc != nil && nc != nil:
-		if oc.Command != nc.Command {
-			fmt.Fprintf(b, "- $ %s\n+ $ %s\n", oc.Command, nc.Command)
-		} else {
-			fmt.Fprintf(b, "$ %s\n", oc.Command)
-		}
-		writeValueDiff(b, oc.Stdout, nc.Stdout)
-		writeValueDiff(b, oc.Stderr, nc.Stderr)
-		if oc.ExitCode != nc.ExitCode {
-			fmt.Fprintf(b, "exit code: %d -> %d\n", oc.ExitCode, nc.ExitCode)
-		}
-	case oc != nil:
-		fmt.Fprintf(b, "- $ %s\n", oc.Command)
-		writeLines(b, "-", oc.Stdout)
-	default:
-		fmt.Fprintf(b, "+ $ %s\n", nc.Command)
-		writeLines(b, "+", nc.Stdout)
-	}
-}
-
-func writeValueDiff(b *strings.Builder, oldValue, newValue string) {
-	if oldValue == newValue {
-		return
-	}
-	writeLines(b, "-", oldValue)
-	writeLines(b, "+", newValue)
-}
-
-func writeLines(b *strings.Builder, sign, value string) {
-	trimmed := strings.TrimSuffix(value, "\n")
-	if trimmed == "" {
-		return
-	}
-	for _, line := range strings.Split(trimmed, "\n") {
-		fmt.Fprintf(b, "%s %s\n", sign, line)
-	}
 }
 
 func isTerminal(f *os.File) bool {

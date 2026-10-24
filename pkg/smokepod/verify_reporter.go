@@ -57,11 +57,11 @@ func (r *VerifyReporter) ReportManifestDrift(drift []Drift) {
 // ChangeEntry is one reviewer-facing change summary line: the file and
 // section that failed plus the first differing output pair.
 type ChangeEntry struct {
-	File     string
-	Section  string
-	Line     int    // source line of the first difference; 0 when not line-specific
-	Expected string // expected (recorded) value or "exit N"
-	Actual   string // actual (re-run) value or "exit N"
+	File     string `json:"file"`
+	Section  string `json:"section"`
+	Line     int    `json:"line"`     // source line of the first difference; 0 when not line-specific
+	Expected string `json:"expected"` // expected (recorded) value or "exit N"
+	Actual   string `json:"actual"`   // actual (re-run) value or "exit N"
 }
 
 // maxSummaryChars caps each side of the pair in the change summary so the

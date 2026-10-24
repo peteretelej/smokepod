@@ -33,6 +33,12 @@ Smokepod has three modes for running these tests:
 - **`record`** - Run commands against a reference target (e.g. `/bin/bash`) and save the actual output to JSON fixture files. Useful for capturing a known-good baseline.
 - **`verify`** - Run commands against a different target and compare output against previously recorded fixtures. Useful for testing that a replacement tool behaves identically to the original.
 
+For agent workflows, `smokepod mcp` runs an MCP server over stdio exposing the record/verify/update flows as `record`, `check`, and `update` tools (the update tool is confirmation-gated). Point your MCP client at the binary:
+
+```bash
+smokepod mcp
+```
+
 ## Getting Started
 
 ### Install
@@ -179,7 +185,7 @@ npx smokepod record --target /bin/bash --target-arg --norc --target-arg --noprof
   --tests tests/ --fixtures fixtures/
 ```
 
-Use process mode for targets that communicate via JSONL instead of a shell:
+Use process mode for targets that communicate via newline-delimited JSON-RPC instead of a shell:
 
 ```bash
 npx smokepod verify --target ./my-adapter --mode process \

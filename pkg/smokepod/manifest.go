@@ -26,9 +26,9 @@ type Manifest struct {
 
 // Drift describes one baseline file that changed after record.
 type Drift struct {
-	Tree string // "tests" or "fixtures"
-	Path string // manifest key (slash-separated, relative to the tree root)
-	Kind string // "modified", "missing", or "untracked"
+	Tree string `json:"tree"` // "tests" or "fixtures"
+	Path string `json:"path"` // manifest key (slash-separated, relative to the tree root)
+	Kind string `json:"kind"` // "modified", "missing", or "untracked"
 }
 
 // ManifestPath returns the manifest location inside the fixtures directory.

@@ -284,6 +284,32 @@ smokepod validate config.yaml
 - Use smaller base images when possible
 - Reduce test scope with `run: [specific-sections]`
 
+## Process Mode Framing Changed (v1.2.0)
+
+Process mode (`--mode process`) now speaks newline-delimited **JSON-RPC 2.0** over stdin/stdout. This is a breaking change for custom process-mode targets that implemented the old JSONL protocol.
+
+Old framing (removed):
+
+```text
+-> {"command":"..."}
+<- {"stdout":"...","stderr":"...","exit_code":0}
+```
+
+New framing:
+
+```text
+-> {"jsonrpc":"2.0","id":1,"method":"exec","params":{"command":"..."}}
+<- {"jsonrpc":"2.0","id":1,"result":{"stdout":"...","stderr":"...","exit_code":0}}
+```
+
+### Migrating a custom target
+
+Update your target to parse the `params.command` field of each request line and answer with the matching `id` and a `result` object. The stderr and exit-code semantics are unchanged.
+
+### Temporary compatibility flag
+
+If you cannot update the target yet, `smokepod verify --legacy-framing --mode process ...` keeps speaking the old framing for one release. The flag is removed in the next release; update your target before then. `record` and `update` always use the new framing.
+
 ## Getting Help
 
 1. Run with verbose output for debugging

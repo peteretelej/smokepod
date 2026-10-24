@@ -29,6 +29,7 @@ func newTestApp() *cli.Command {
 			verifyCommand(),
 			updateCommand(),
 			probeCommand(),
+			mcpCommand(),
 		},
 	}
 }
