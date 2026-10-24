@@ -37,7 +37,7 @@ inputs:
     description: 'Comma-separated section names to run'
     required: false
   json:
-    description: 'Output results as JSON'
+    description: 'Output results as JSON (verify mode)'
     default: 'false'
   install:
     description: 'Whether to download and install smokepod (set to false if already on PATH)'

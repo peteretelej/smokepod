@@ -27,7 +27,7 @@ Smokepod provides a GitHub Action for running smoke tests in CI.
 | `fail-fast` | no | `false` | Stop on first failure |
 | `timeout` | no | - | Per-command timeout (e.g. `30s`, `1m`) |
 | `run` | no | - | Comma-separated section names |
-| `json` | no | `false` | Output results as JSON |
+| `json` | no | `false` | Output results as JSON (verify mode) |
 | `version` | no | `latest` | Smokepod version to install |
 
 ## Examples
