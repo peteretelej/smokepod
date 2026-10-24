@@ -68,9 +68,20 @@ def smokepod_parity() -> Scorer:
         summary = result.get("summary", {})
         counts = "%s/%s sections matched" % (summary.get("passed", 0), summary.get("total", 0))
         answer = "%s: %s" % (candidate, counts)
-        if result.get("passed"):
+        drift = result.get("drift") or []
+        # `passed` covers section outcomes only: a non-empty drift[] means
+        # the baseline changed after record (e.g. tampered so the
+        # candidate's real output matches it), which fails the run without
+        # failing a section.
+        if result.get("passed") and not drift:
             return Score(value=CORRECT, answer=answer,
                          explanation="candidate is at parity with the recorded baseline")
+
+        if drift:
+            lines = ["recorded baseline is not trustworthy (drift after record):"]
+            lines += ["%s %s: %s" % (d.get("tree"), d.get("path"), d.get("kind"))
+                      for d in drift]
+            return Score(value=INCORRECT, answer=answer, explanation="\n".join(lines))
 
         diffs = ["%s %s:%s: %r -> %r" % (c.get("file"), c.get("section"), c.get("line"),
                                          c.get("expected"), c.get("actual"))

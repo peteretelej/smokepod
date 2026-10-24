@@ -36,7 +36,10 @@ failed, so adapters can parse the JSON regardless of the exit code.
 
 Top level: `name`, `timestamp`, `duration`, `passed`, `summary{total,passed,failed,skipped,xfail,xpass}`,
 `tests[]`, `changes[]` (first differing pair per failed section), and
-`drift[]` (baseline files that changed after record).
+`drift[]` (baseline files that changed after record). Graders must treat a
+non-empty `drift[]` as failure, even when `passed` is true: `passed` reflects
+section outcomes only, so baseline files tampered after record (no longer
+matching the manifest) fail the run without failing any section.
 
 Per failed command, `tests[].sections[].commands[]` carries everything a
 grader needs to explain the failure:
@@ -66,7 +69,8 @@ with fewer sections (it stops early; it does not truncate fields).
 
 `examples/evals/promptfoo/smokepod_assert.py` is a custom Python assertion.
 It runs `smokepod verify --target <candidate> --json` against the candidate
-and passes or fails from `passed`, with per-section diffs as the reason:
+and passes or fails from `passed` and `drift` (a non-empty `drift[]` always
+fails), with per-section diffs as the reason:
 
 ```yaml
 # promptfoo.yaml

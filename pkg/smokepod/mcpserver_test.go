@@ -260,6 +260,74 @@ func TestMCP_Update_ConfirmFalseDoesNotWrite(t *testing.T) {
 	_ = text
 }
 
+func TestMCP_Record_CIRefusesWithoutUpdate(t *testing.T) {
+	cs := connectMCPTestClient(t)
+	testsDir, fixturesDir, target := setupMCPFixtures(t)
+
+	// Tamper the fixture on disk (drift without touching the manifest): a
+	// CI record without update must refuse instead of re-blessing the
+	// tampered hash into a fresh manifest.
+	fixturePath := filepath.Join(fixturesDir, "hi.fixture.json")
+	fixture, err := ReadFixture(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.Sections["hi"][0].Stdout = "tampered\n"
+	if _, err := WriteFixture(fixturePath, fixture, "  "); err != nil {
+		t.Fatal(err)
+	}
+	fixtureBefore, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := ManifestPath(fixturesDir)
+	manifestBefore, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CI", "1")
+	// Tool errors surface as a result with IsError, not a transport error.
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "record",
+		Arguments: map[string]any{
+			"tests":    testsDir,
+			"fixtures": fixturesDir,
+			"target":   target,
+		},
+	})
+	if err != nil {
+		t.Fatalf("record tool call: %v", err)
+	}
+	if !res.IsError {
+		t.Error("record in CI without update = tool success, want an error result")
+	}
+	var text strings.Builder
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			text.WriteString(tc.Text)
+		}
+	}
+	if !strings.Contains(text.String(), "CI") {
+		t.Errorf("error = %q, want the CI guard remediation", text.String())
+	}
+
+	fixtureAfter, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(fixtureBefore) != string(fixtureAfter) {
+		t.Error("CI guard must not rewrite fixtures")
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifestBefore) != string(manifestAfter) {
+		t.Error("CI guard must not refresh the manifest")
+	}
+}
+
 func TestMCP_Update_ConfirmTrueApplies(t *testing.T) {
 	cs := connectMCPTestClient(t)
 	testsDir, fixturesDir, target := setupMCPFixtures(t)

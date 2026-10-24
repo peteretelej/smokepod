@@ -63,9 +63,19 @@ def get_assert(output: str, context) -> Dict[str, Any]:
 
     summary = result.get("summary", {})
     counts = "%s/%s sections matched" % (summary.get("passed", 0), summary.get("total", 0))
-    if result.get("passed"):
+    drift = result.get("drift") or []
+    # `passed` covers section outcomes only: a non-empty drift[] means the
+    # baseline changed after record (e.g. tampered so the candidate's real
+    # output matches it), which fails the run without failing a section.
+    if proc.returncode == 0 and result.get("passed") and not drift:
         return {"pass": True, "score": 1.0,
                 "reason": "candidate is at parity with the recorded baseline (%s)" % counts}
+
+    if drift:
+        lines = ["recorded baseline is not trustworthy (drift after record):"]
+        lines += ["  %s %s: %s" % (d.get("tree"), d.get("path"), d.get("kind"))
+                  for d in drift]
+        return _fail("\n".join(lines))
 
     reason = "candidate diverges from the recorded baseline (%s)" % counts
     diffs = ["  %s %s:%s: %r -> %r" % (c.get("file"), c.get("section"), c.get("line"),

@@ -58,6 +58,13 @@ type recordToolOutput struct {
 }
 
 func recordTool(ctx context.Context, req *mcp.CallToolRequest, in recordToolInput) (*mcp.CallToolResult, recordToolOutput, error) {
+	// Same environment guard as the CLI: record refuses to run in CI
+	// without an explicit update, so a tampered baseline cannot be
+	// silently re-blessed into a fresh manifest.
+	if os.Getenv("CI") != "" && !in.Update {
+		return nil, recordToolOutput{}, fmt.Errorf("%w (set update=true to overwrite fixtures)", ErrCIGuard)
+	}
+
 	summary, err := Record(ctx, RecordOptions{
 		Target:      in.Target,
 		TargetArgs:  in.TargetArgs,
