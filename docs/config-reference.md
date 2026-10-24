@@ -147,6 +147,8 @@ smokepod record --target /bin/bash --target-arg --norc --target-arg --noprofile 
 
 Recording is refused in CI environments (when `CI` env var is set) unless `--update` is passed.
 
+Every recording run also writes `manifest.json` into the fixtures directory with SHA-256 hashes of the `.test` files and fixtures. See [test-format.md](test-format.md#baseline-protection-manifest) for how the manifest protects baselines.
+
 ### Verify
 
 ```bash
@@ -169,6 +171,49 @@ smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 | `--json` | no | `false` | Output results as JSON |
 | `--run` | no | all | Comma-separated section names |
 | `--allow-empty` | no | `false` | Allow empty test discovery (no .test files found) |
+
+Verification requires a `manifest.json` in the fixtures directory (written by `record`). Verify fails when fixtures or `.test` files changed after recording, naming the drifted files.
+
+### Update
+
+Review and accept baseline changes by re-recording the affected fixtures:
+
+```bash
+smokepod update --target /bin/bash --tests tests/ --fixtures fixtures/
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--target` | yes | - | Path to the target executable |
+| `--target-arg` | no | - | Fixed argument for the target (repeatable) |
+| `--tests` | yes | - | Path to `.test` files |
+| `--fixtures` | yes | - | Path to fixtures directory |
+| `--mode` | no | `shell` | Target mode: `shell` or `process` |
+| `--timeout` | no | `30s` | Per-command timeout |
+| `--all` | no | `false` | Re-record every fixture, not only drifted ones |
+| `--yes` | no | `false` | Apply without interactive confirmation (for scripts and agents) |
+| `--indent` | no | `2` | JSON indent for rewritten fixtures: `2`, `4`, or `tab` |
+
+`update` re-records the fixtures whose content drifted from the manifest, renders old-vs-new output per section, and rewrites fixtures plus manifest only after explicit approval. Without approval (non-interactive input, no `--yes`) nothing is changed and the exit code is non-zero. `update` always refuses in CI environments; CI baseline changes go through reviewed PRs.
+
+### Probe
+
+Self-test that tamper detection is active in your setup:
+
+```bash
+smokepod probe --target /bin/bash --tests tests/ --fixtures fixtures/
+```
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--target` | yes | - | Path to the target executable |
+| `--target-arg` | no | - | Fixed argument for the target (repeatable) |
+| `--tests` | yes | - | Path to `.test` files |
+| `--fixtures` | yes | - | Path to fixtures directory |
+| `--mode` | no | `shell` | Target mode: `shell` or `process` |
+| `--timeout` | no | `30s` | Per-command timeout |
+
+`probe` copies the fixture set to a temporary directory, perturbs one recorded value, and runs the verify path against the copy. It exits 0 with `protection verified` when detection works, and non-zero when verify fails to catch the tampering. The real fixtures are never modified.
 
 ### Target Modes
 

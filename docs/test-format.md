@@ -334,3 +334,16 @@ When using `verify`, smokepod checks that fixture files match the current `.test
 - **Command count mismatch**: if a section has a different number of commands in the `.test` file than in the fixture, verification fails. Re-record after updating the `.test` file.
 
 This ensures that fixture data stays in sync with your test definitions.
+
+## Baseline Protection (manifest)
+
+`record` writes a `manifest.json` into the fixtures directory recording SHA-256 hashes of every `.test` file and fixture. `verify` checks the manifest before comparing outputs:
+
+- **Missing manifest**: verify fails and asks you to run `record` once to adopt protection.
+- **Manifest drift**: if a fixture or `.test` file changed after recording, verify fails naming the changed files, so baselines cannot be silently edited or re-recorded.
+
+Structural failures (stale or missing sections, command count mismatches) are reported with precedence over manifest drift, since they already pinpoint the fix.
+
+To accept legitimate changes, run `smokepod update`: it re-records only the drifted fixtures (or everything with `--all`), renders old-vs-new output per section, and rewrites fixtures plus manifest only after explicit approval (interactive confirmation, or `--yes` for scripts and agents). Without approval nothing is changed and the exit code is non-zero. Like `record`, `update` refuses to run in CI environments; CI baseline changes go through reviewed PRs.
+
+`smokepod probe` is a self-test for the protection layer: it copies your fixtures to a temporary directory, tampers with one recorded value, and asserts that `verify` catches it and names the tampered file. It exits 0 with `protection verified` when detection works.

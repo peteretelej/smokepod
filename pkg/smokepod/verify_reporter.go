@@ -44,6 +44,16 @@ func (r *VerifyReporter) ReportXPass(name, reason, file string, line int) {
 	}
 }
 
+// ReportManifestDrift prints baseline drift detected by the manifest check:
+// files whose content changed after record.
+func (r *VerifyReporter) ReportManifestDrift(drift []Drift) {
+	_, _ = fmt.Fprintf(r.output, "\n\nMANIFEST DRIFT: baseline changed after record (%d file(s)):\n", len(drift))
+	for _, d := range drift {
+		_, _ = fmt.Fprintf(r.output, "  %s %s [%s]\n", d.Kind, d.Path, d.Tree)
+	}
+	_, _ = fmt.Fprintln(r.output, "  Baselines are protected; review and accept changes with: smokepod update --tests <dir> --fixtures <dir>")
+}
+
 func (r *VerifyReporter) ReportSummary(passed, failed, xfail, xpass, total int) {
 	parts := []string{fmt.Sprintf("%d passed", passed)}
 	if failed > 0 {

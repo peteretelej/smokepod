@@ -26,6 +26,8 @@ func newTestApp() *cli.Command {
 			validateCommand(),
 			recordCommand(),
 			verifyCommand(),
+			updateCommand(),
+			probeCommand(),
 		},
 	}
 }

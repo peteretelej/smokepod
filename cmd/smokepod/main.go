@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +40,8 @@ func main() {
 			validateCommand(),
 			recordCommand(),
 			verifyCommand(),
+			updateCommand(),
+			probeCommand(),
 		},
 	}
 
@@ -194,6 +200,95 @@ func verifyCommand() *cli.Command {
 	}
 }
 
+func updateCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "update",
+		Usage: "Review and accept baseline changes by re-recording fixtures",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "target",
+				Usage: "Path to the target executable",
+			},
+			&cli.StringSliceFlag{
+				Name:  "target-arg",
+				Usage: "Fixed argument for the target executable (repeatable)",
+			},
+			&cli.StringFlag{
+				Name:     "tests",
+				Usage:    "Path to test files",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:     "fixtures",
+				Usage:    "Path to fixtures directory",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:  "mode",
+				Usage: "Target mode: shell (default), process, or wrap",
+				Value: "",
+			},
+			&cli.DurationFlag{
+				Name:  "timeout",
+				Usage: "Command timeout",
+				Value: 30 * time.Second,
+			},
+			&cli.BoolFlag{
+				Name:  "all",
+				Usage: "Re-record every fixture, not only drifted ones",
+			},
+			&cli.BoolFlag{
+				Name:  "yes",
+				Usage: "Apply without interactive confirmation (for scripts and agents)",
+			},
+			&cli.StringFlag{
+				Name:  "indent",
+				Usage: `JSON indent for rewritten fixtures: "2" (default), "4", or "tab"`,
+				Value: "2",
+			},
+		},
+		Action: updateAction,
+	}
+}
+
+func probeCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "probe",
+		Usage: "Self-test that verify detects tampered fixtures",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "target",
+				Usage: "Path to the target executable",
+			},
+			&cli.StringSliceFlag{
+				Name:  "target-arg",
+				Usage: "Fixed argument for the target executable (repeatable)",
+			},
+			&cli.StringFlag{
+				Name:     "tests",
+				Usage:    "Path to test files",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:     "fixtures",
+				Usage:    "Path to fixtures directory",
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:  "mode",
+				Usage: "Target mode: shell (default), process, or wrap",
+				Value: "",
+			},
+			&cli.DurationFlag{
+				Name:  "timeout",
+				Usage: "Command timeout",
+				Value: 30 * time.Second,
+			},
+		},
+		Action: probeAction,
+	}
+}
+
 func runAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return cli.Exit("Error: config file path required\n  Usage: smokepod run <config.yaml>", exitConfigError)
@@ -308,16 +403,9 @@ func recordAction(ctx context.Context, cmd *cli.Command) error {
 	runFlag := cmd.String("run")
 	allowEmpty := cmd.Bool("allow-empty")
 
-	var indent string
-	switch v := cmd.String("indent"); v {
-	case "2":
-		indent = "  "
-	case "4":
-		indent = "    "
-	case "tab":
-		indent = "\t"
-	default:
-		return cli.Exit(fmt.Sprintf("invalid --indent value %q: use 2, 4, or tab", v), exitConfigError)
+	indent, err := parseIndent(cmd.String("indent"))
+	if err != nil {
+		return cli.Exit(err.Error(), exitConfigError)
 	}
 
 	if os.Getenv("CI") != "" && !update {
@@ -495,6 +583,16 @@ func recordAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "\nSummary: %d recorded, %d unchanged, %d skipped, %d failed\n", recorded, unchanged, skipped, failed)
+
+	// Refresh the manifest so the baseline on disk stays protected.
+	manifest, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error scanning baseline for manifest: %v", err), exitRuntimeError)
+	}
+	if err := smokepod.WriteManifest(fixturesPath, manifest); err != nil {
+		return cli.Exit(fmt.Sprintf("Error writing manifest: %v", err), exitRuntimeError)
+	}
+
 	if failed > 0 && recorded == 0 {
 		return cli.Exit("all test files failed to record", exitTestFailure)
 	}
@@ -540,11 +638,24 @@ func verifyAction(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	return runVerify(cmd, ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput)
+	return runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput, cmd.String("run"))
 }
 
-func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast bool, jsonOutput bool) error {
-	runFlag := cmd.String("run")
+func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast, jsonOutput bool, runFlag string) error {
+	// Baseline protection: load the recorded manifest and compare it with the
+	// current state on disk before running anything.
+	recorded, err := smokepod.LoadManifest(fixturesPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; baselines are protected - run `smokepod record` once with the same --tests/--fixtures to create one", exitConfigError)
+		}
+		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
+	}
+	onDisk, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
+	}
+	drift := smokepod.DiffManifest(recorded, onDisk)
 
 	var runSections []string
 	if runFlag != "" {
@@ -575,6 +686,11 @@ func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTarge
 	}
 
 	reporter := smokepod.NewVerifyReporter(os.Stderr)
+
+	// Structural failures (stale/missing sections, command count mismatch)
+	// take precedence over manifest drift messaging: they already pinpoint
+	// the remediation for structure changes.
+	structuralFailure := false
 
 	sectionsPassed := 0
 	sectionsFailed := 0
@@ -714,6 +830,7 @@ func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTarge
 			sectionsTotal++
 			allSectionResults = append(allSectionResults, smokepod.SectionResult{Name: fixtureSectionName, Status: "fail"})
 			staleFailed = true
+			structuralFailure = true
 			if failFast {
 				break
 			}
@@ -761,6 +878,7 @@ func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTarge
 				reporter.ReportSection(section.Name, "fail")
 				sectionsFailed++
 				sectionsTotal++
+				structuralFailure = true
 				allSectionResults = append(allSectionResults, smokepod.SectionResult{Name: section.Name, Status: "fail"})
 				if failFast {
 					break
@@ -822,6 +940,7 @@ func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTarge
 					testCmdCount, fixtureCmdCount, fixturePath,
 				))
 				sectionPassed = false
+				structuralFailure = true
 			}
 
 			// Determine section status
@@ -890,6 +1009,11 @@ func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTarge
 		fmt.Println(string(data))
 	}
 
+	if len(drift) > 0 && !structuralFailure {
+		reporter.ReportManifestDrift(drift)
+		return cli.Exit("", exitTestFailure)
+	}
+
 	if sectionsFailed > 0 || sectionsXPass > 0 {
 		return cli.Exit("", exitTestFailure)
 	}
@@ -945,4 +1069,487 @@ func configDir(path string) string {
 		}
 	}
 	return "."
+}
+
+func updateAction(ctx context.Context, cmd *cli.Command) error {
+	cliTarget := cmd.String("target")
+	cliTargetArgs := cmd.StringSlice("target-arg")
+	testsPath := cmd.String("tests")
+	fixturesPath := cmd.String("fixtures")
+	cliMode := cmd.String("mode")
+	timeout := cmd.Duration("timeout")
+	all := cmd.Bool("all")
+	yes := cmd.Bool("yes")
+
+	indent, err := parseIndent(cmd.String("indent"))
+	if err != nil {
+		return cli.Exit(err.Error(), exitConfigError)
+	}
+
+	// Same environment guard as record, but stricter: update never runs in
+	// CI. CI approvals go through reviewed PRs, not flags.
+	if os.Getenv("CI") != "" {
+		fmt.Fprintln(os.Stderr, "Warning: CI environment detected; baseline updates require human review")
+		return cli.Exit("update cannot approve baseline changes in CI; commit reviewed updates through a PR", exitRuntimeError)
+	}
+
+	recorded, err := smokepod.LoadManifest(fixturesPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; nothing to update - run `smokepod record` once to create a protected baseline", exitConfigError)
+		}
+		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
+	}
+
+	testFiles, err := smokepod.FindTestFiles(testsPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
+	}
+	if len(testFiles) == 0 {
+		return cli.Exit("no .test files found in "+testsPath, exitConfigError)
+	}
+
+	onDisk, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
+	}
+	drift := smokepod.DiffManifest(recorded, onDisk)
+
+	// Even with an empty re-record scope (e.g. a deleted .test file), drift
+	// still needs the manifest refresh below to be accepted.
+	scope := updateScope(testFiles, testsPath, drift, all)
+	if len(drift) == 0 && !all {
+		fmt.Fprintln(os.Stderr, "Baseline in sync; nothing to update")
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+		defer timeoutCancel()
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	var sharedProcTarget *smokepod.ProcessTarget
+	if cliMode == "process" && cliTarget != "" {
+		if _, err := exec.LookPath(cliTarget); err != nil {
+			return cli.Exit(fmt.Sprintf("target %q not found in PATH", cliTarget), exitConfigError)
+		}
+		pt, err := smokepod.NewProcessTarget(ctx, cliTarget, cliTargetArgs...)
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("Error creating shared process target: %v", err), exitRuntimeError)
+		}
+		sharedProcTarget = pt
+		defer func() { _ = sharedProcTarget.Close() }()
+	}
+
+	type reRecord struct {
+		fixturePath string
+		oldFixture  *smokepod.FixtureFile
+		newFixture  *smokepod.FixtureFile
+	}
+	var plan []reRecord
+	failed := 0
+	for _, testFile := range scope {
+		newFixture, err := reRecordFixture(ctx, testFile, cliTarget, cliTargetArgs, cliMode, sharedProcTarget)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error re-recording %s: %v\n", testFile, err)
+			failed++
+			continue
+		}
+		fixturePath := smokepod.FixturePathFromTest(testFile, testsPath, fixturesPath)
+		oldFixture, err := smokepod.ReadFixture(fixturePath)
+		if err != nil {
+			oldFixture = nil
+		}
+		plan = append(plan, reRecord{fixturePath: fixturePath, oldFixture: oldFixture, newFixture: newFixture})
+	}
+	if failed > 0 {
+		return cli.Exit(fmt.Sprintf("%d test file(s) failed to re-record; nothing was changed", failed), exitTestFailure)
+	}
+
+	// Render old-vs-new for review before anything is written.
+	changed := 0
+	for _, p := range plan {
+		_, _ = fmt.Fprintf(os.Stdout, "--- recorded: %s\n+++ re-recorded\n", p.fixturePath)
+		diff := renderFixtureDiff(p.oldFixture, p.newFixture)
+		if diff == "" {
+			_, _ = fmt.Fprintln(os.Stdout, "no output changes")
+		} else {
+			changed++
+			_, _ = fmt.Fprint(os.Stdout, diff)
+		}
+		_, _ = fmt.Fprintln(os.Stdout)
+	}
+
+	if !yes {
+		if !isTerminal(os.Stdin) {
+			return cli.Exit("refusing to update baselines without approval; re-run with --yes for non-interactive use", exitRuntimeError)
+		}
+		fmt.Fprintf(os.Stderr, "Apply update to %d fixture(s) and refresh the manifest? [y/N] ", len(plan))
+		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer != "y" && answer != "yes" {
+			return cli.Exit("update aborted; baselines unchanged", exitRuntimeError)
+		}
+	}
+
+	written := 0
+	for _, p := range plan {
+		didWrite, err := smokepod.WriteFixture(p.fixturePath, p.newFixture, indent)
+		if err != nil {
+			return cli.Exit(fmt.Sprintf("Error writing fixture %s: %v", p.fixturePath, err), exitRuntimeError)
+		}
+		if didWrite {
+			written++
+		}
+	}
+
+	manifest, err := smokepod.ScanManifest(testsPath, fixturesPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error scanning baseline: %v", err), exitRuntimeError)
+	}
+	if err := smokepod.WriteManifest(fixturesPath, manifest); err != nil {
+		return cli.Exit(fmt.Sprintf("Error writing manifest: %v", err), exitRuntimeError)
+	}
+
+	fmt.Fprintf(os.Stderr, "Update complete: %d fixture(s) written, manifest refreshed\n", written)
+	return nil
+}
+
+func probeAction(ctx context.Context, cmd *cli.Command) error {
+	cliTarget := cmd.String("target")
+	cliTargetArgs := cmd.StringSlice("target-arg")
+	testsPath := cmd.String("tests")
+	fixturesPath := cmd.String("fixtures")
+	cliMode := cmd.String("mode")
+	timeout := cmd.Duration("timeout")
+
+	recorded, err := smokepod.LoadManifest(fixturesPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; run `smokepod record` first - probe needs a protected baseline", exitConfigError)
+		}
+		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
+	}
+
+	// Pick the first recorded command (sorted for determinism) to perturb.
+	keys := make([]string, 0, len(recorded.Fixtures))
+	for key := range recorded.Fixtures {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var perturbKey, perturbSection, perturbOrig string
+	found := false
+	for _, key := range keys {
+		fixture, err := smokepod.ReadFixture(filepath.Join(fixturesPath, filepath.FromSlash(key)))
+		if err != nil {
+			continue
+		}
+		sectionNames := make([]string, 0, len(fixture.Sections))
+		for name := range fixture.Sections {
+			sectionNames = append(sectionNames, name)
+		}
+		sort.Strings(sectionNames)
+		for _, name := range sectionNames {
+			if cmds := fixture.Sections[name]; len(cmds) > 0 {
+				perturbKey, perturbSection, perturbOrig = key, name, cmds[0].Stdout
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		return cli.Exit("probe found no recorded command output to perturb in "+fixturesPath, exitRuntimeError)
+	}
+
+	testFiles, err := smokepod.FindTestFiles(testsPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
+	}
+	if len(testFiles) == 0 {
+		return cli.Exit("no .test files found in "+testsPath, exitConfigError)
+	}
+
+	if timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+		defer timeoutCancel()
+	}
+
+	// Work entirely on a copy so the real baseline stays untouched.
+	tmpRoot, err := os.MkdirTemp("", "smokepod-probe-")
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error creating probe temp dir: %v", err), exitRuntimeError)
+	}
+	defer func() { _ = os.RemoveAll(tmpRoot) }()
+
+	probeFixtures := filepath.Join(tmpRoot, "fixtures")
+	if err := os.CopyFS(probeFixtures, os.DirFS(fixturesPath)); err != nil {
+		return cli.Exit(fmt.Sprintf("Error copying fixtures for probe: %v", err), exitRuntimeError)
+	}
+
+	probePath := filepath.Join(probeFixtures, filepath.FromSlash(perturbKey))
+	perturbed, err := smokepod.ReadFixture(probePath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error reading copied fixture: %v", err), exitRuntimeError)
+	}
+	perturbed.Sections[perturbSection][0].Stdout = perturbOrig + "TAMPERED BY PROBE"
+	if _, err := smokepod.WriteFixture(probePath, perturbed, "  "); err != nil {
+		return cli.Exit(fmt.Sprintf("Error writing perturbed fixture: %v", err), exitRuntimeError)
+	}
+
+	output, verifyErr := runVerifyCaptured(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, probeFixtures)
+	if verifyErr == nil {
+		return cli.Exit(fmt.Sprintf("protection failed: verify did not detect tampered %s", perturbKey), exitTestFailure)
+	}
+	if !strings.Contains(output, perturbKey) {
+		return cli.Exit(fmt.Sprintf("protection failed: verify did not name the tampered entry %s", perturbKey), exitTestFailure)
+	}
+
+	fmt.Fprintf(os.Stderr, "protection verified: verify detected tampered %s\n", perturbKey)
+	return nil
+}
+
+// runVerifyCaptured runs the verify flow against the given fixtures directory
+// with stderr captured, so the probe can inspect the failure output.
+func runVerifyCaptured(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string) (string, error) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		return "", err
+	}
+	os.Stderr = w
+	verifyErr := runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, false, false, "")
+	_ = w.Close()
+	os.Stderr = old
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	_ = r.Close()
+	return buf.String(), verifyErr
+}
+
+// updateScope picks the test files to re-record: everything with --all,
+// otherwise the files behind drifted manifest entries (a drifted test file
+// implicates its fixture and vice versa).
+func updateScope(testFiles []string, testsPath string, drift []smokepod.Drift, all bool) []string {
+	if all {
+		return testFiles
+	}
+
+	driftedTests := map[string]bool{}
+	driftedFixtures := map[string]bool{}
+	for _, d := range drift {
+		if d.Tree == "tests" {
+			driftedTests[d.Path] = true
+		} else {
+			driftedFixtures[d.Path] = true
+		}
+	}
+
+	testsRoot := testsPath
+	if info, err := os.Stat(testsPath); err == nil && !info.IsDir() {
+		testsRoot = filepath.Dir(testsPath)
+	}
+
+	var scope []string
+	for _, testFile := range testFiles {
+		rel, err := filepath.Rel(testsRoot, testFile)
+		if err != nil {
+			continue
+		}
+		key := filepath.ToSlash(rel)
+		if driftedTests[key] || driftedFixtures[smokepod.FixtureKeyForTest(key)] {
+			scope = append(scope, testFile)
+		}
+	}
+	return scope
+}
+
+// reRecordFixture runs a test file's commands and builds the fixture that
+// record would write, without writing it.
+func reRecordFixture(ctx context.Context, testFile, cliTarget string, cliTargetArgs []string, cliMode string, sharedProcTarget *smokepod.ProcessTarget) (*smokepod.FixtureFile, error) {
+	tf, err := testfile.Parse(testFile)
+	if err != nil {
+		return nil, err
+	}
+
+	resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(testFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := exec.LookPath(resolvedTarget); err != nil {
+		return nil, fmt.Errorf("target %q not found in PATH", resolvedTarget)
+	}
+
+	var targetExec smokepod.Target
+	if resolvedMode == "process" {
+		if sharedProcTarget != nil {
+			targetExec = sharedProcTarget
+		} else {
+			procTarget, err := smokepod.NewProcessTarget(ctx, resolvedTarget, resolvedArgs...)
+			if err != nil {
+				return nil, err
+			}
+			targetExec = procTarget
+		}
+	} else {
+		targetExec = smokepod.NewLocalTarget(resolvedTarget, resolvedArgs, nil, resolvedMode)
+	}
+	defer func() {
+		if targetExec != nil && targetExec != sharedProcTarget {
+			_ = targetExec.Close()
+		}
+	}()
+
+	platform := smokepod.DetectPlatform(ctx, targetExec)
+
+	sections, err := tf.GetSections(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	fixture := &smokepod.FixtureFile{
+		Source:           testFile,
+		RecordedWith:     resolvedTarget,
+		RecordedWithArgs: resolvedArgs,
+		Platform:         platform,
+		Sections:         make(map[string][]smokepod.FixtureCommand),
+	}
+	for _, section := range sections {
+		commands := []smokepod.FixtureCommand{}
+		for _, tc := range section.Commands {
+			result, err := targetExec.Exec(ctx, tc.Cmd)
+			if err != nil {
+				return nil, fmt.Errorf("executing %q: %w", tc.Cmd, err)
+			}
+			commands = append(commands, smokepod.FixtureCommand{
+				Line:     tc.Line,
+				Command:  tc.Cmd,
+				Stdout:   result.Stdout,
+				Stderr:   result.Stderr,
+				ExitCode: result.ExitCode,
+			})
+		}
+		fixture.Sections[section.Name] = commands
+	}
+	return fixture, nil
+}
+
+// renderFixtureDiff renders old-vs-new fixture content per section, showing
+// only the commands and values that differ. Empty result means no changes.
+func renderFixtureDiff(oldFixture, newFixture *smokepod.FixtureFile) string {
+	sectionNames := map[string]bool{}
+	for name := range oldFixture.Sections {
+		sectionNames[name] = true
+	}
+	for name := range newFixture.Sections {
+		sectionNames[name] = true
+	}
+	sorted := make([]string, 0, len(sectionNames))
+	for name := range sectionNames {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+
+	var out strings.Builder
+	for _, name := range sorted {
+		var section strings.Builder
+		oldCmds := oldFixture.Sections[name]
+		newCmds := newFixture.Sections[name]
+		count := len(oldCmds)
+		if len(newCmds) > count {
+			count = len(newCmds)
+		}
+		for i := 0; i < count; i++ {
+			var oc, nc *smokepod.FixtureCommand
+			if i < len(oldCmds) {
+				oc = &oldCmds[i]
+			}
+			if i < len(newCmds) {
+				nc = &newCmds[i]
+			}
+			writeCommandDiff(&section, oc, nc)
+		}
+		if section.Len() > 0 {
+			fmt.Fprintf(&out, "## %s\n", name)
+			out.WriteString(section.String())
+		}
+	}
+	return out.String()
+}
+
+func writeCommandDiff(b *strings.Builder, oc, nc *smokepod.FixtureCommand) {
+	switch {
+	case oc != nil && nc != nil:
+		if oc.Command != nc.Command {
+			fmt.Fprintf(b, "- $ %s\n+ $ %s\n", oc.Command, nc.Command)
+		} else {
+			fmt.Fprintf(b, "$ %s\n", oc.Command)
+		}
+		writeValueDiff(b, oc.Stdout, nc.Stdout)
+		writeValueDiff(b, oc.Stderr, nc.Stderr)
+		if oc.ExitCode != nc.ExitCode {
+			fmt.Fprintf(b, "exit code: %d -> %d\n", oc.ExitCode, nc.ExitCode)
+		}
+	case oc != nil:
+		fmt.Fprintf(b, "- $ %s\n", oc.Command)
+		writeLines(b, "-", oc.Stdout)
+	default:
+		fmt.Fprintf(b, "+ $ %s\n", nc.Command)
+		writeLines(b, "+", nc.Stdout)
+	}
+}
+
+func writeValueDiff(b *strings.Builder, oldValue, newValue string) {
+	if oldValue == newValue {
+		return
+	}
+	writeLines(b, "-", oldValue)
+	writeLines(b, "+", newValue)
+}
+
+func writeLines(b *strings.Builder, sign, value string) {
+	trimmed := strings.TrimSuffix(value, "\n")
+	if trimmed == "" {
+		return
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		fmt.Fprintf(b, "%s %s\n", sign, line)
+	}
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+func parseIndent(v string) (string, error) {
+	switch v {
+	case "2":
+		return "  ", nil
+	case "4":
+		return "    ", nil
+	case "tab":
+		return "\t", nil
+	default:
+		return "", fmt.Errorf("invalid --indent value %q: use 2, 4, or tab", v)
+	}
 }

@@ -108,6 +108,8 @@ npx smokepod verify --target ./my-shell --tests tests/ --fixtures fixtures/
 
 `record` saves output to JSON fixtures. `verify` re-runs the commands and diffs against those fixtures. Commit the fixture files to version control so CI can verify against them.
 
+Baselines are protected: `record` also writes a `manifest.json` with hashes of your tests and fixtures, and `verify` fails naming any file that changed after recording, so baselines cannot be silently edited or re-recorded. To accept real changes, run `smokepod update` to review old-vs-new output and apply it after confirmation (`--yes` for scripts and agents). `smokepod probe` self-tests that tamper detection works in your setup.
+
 ## Test File Syntax
 
 | Syntax | Meaning |
