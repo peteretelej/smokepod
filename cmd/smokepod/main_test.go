@@ -544,6 +544,28 @@ func TestCLI_AllowEmptyFlag(t *testing.T) {
 	}
 }
 
+func TestCLI_Record_MissingProcessTargetIsConfigError(t *testing.T) {
+	// `record --mode process --target <missing>` is an invocation mistake,
+	// classified like the other LookPath failures (verify, update): exit 2.
+	tmpDir := t.TempDir()
+	writeTestFile(t, filepath.Join(tmpDir, "tests"), "t.test", "## s\n$ echo hi\nhi\n")
+
+	app := quietTestApp()
+	err := app.Run(context.Background(), []string{
+		"smokepod", "record",
+		"--mode", "process",
+		"--target", "notinpath",
+		"--tests", filepath.Join(tmpDir, "tests"),
+		"--fixtures", filepath.Join(tmpDir, "fixtures"),
+	})
+	if err == nil {
+		t.Fatal("expected error for missing process target, got nil")
+	}
+	if code := exitCode(err); code != exitConfigError {
+		t.Errorf("exit code = %d, want %d", code, exitConfigError)
+	}
+}
+
 func TestCLI_RecordIndentFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 

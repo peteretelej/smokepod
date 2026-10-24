@@ -65,7 +65,7 @@ func Record(ctx context.Context, opts RecordOptions) (*RecordSummary, error) {
 	var sharedProcTarget *ProcessTarget
 	if opts.Mode == "process" && opts.Target != "" {
 		if _, err := exec.LookPath(opts.Target); err != nil {
-			return nil, fmt.Errorf("target %q not found in PATH", opts.Target)
+			return nil, fmt.Errorf("%w: %s", ErrTargetNotFound, opts.Target)
 		}
 		pt, err := NewProcessTarget(ctx, opts.Target, opts.TargetArgs...)
 		if err != nil {

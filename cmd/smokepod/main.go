@@ -481,7 +481,7 @@ func recordAction(ctx context.Context, cmd *cli.Command) error {
 	})
 	if err != nil {
 		exitCode := exitRuntimeError
-		if errors.Is(err, smokepod.ErrNoTestFiles) || errors.Is(err, smokepod.ErrDiscovery) {
+		if errors.Is(err, smokepod.ErrNoTestFiles) || errors.Is(err, smokepod.ErrDiscovery) || errors.Is(err, smokepod.ErrTargetNotFound) {
 			exitCode = exitConfigError
 		}
 		return cli.Exit(fmt.Sprintf("Error: %v", err), exitCode)
