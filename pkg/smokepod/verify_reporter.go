@@ -54,6 +54,45 @@ func (r *VerifyReporter) ReportManifestDrift(drift []Drift) {
 	_, _ = fmt.Fprintln(r.output, "  Baselines are protected; review and accept changes with: smokepod update --tests <dir> --fixtures <dir>")
 }
 
+// ChangeEntry is one reviewer-facing change summary line: the file and
+// section that failed plus the first differing output pair.
+type ChangeEntry struct {
+	File     string
+	Section  string
+	Line     int    // source line of the first difference; 0 when not line-specific
+	Expected string // expected (recorded) value or "exit N"
+	Actual   string // actual (re-run) value or "exit N"
+}
+
+// maxSummaryChars caps each side of the pair in the change summary so the
+// block stays compact for agents and humans.
+const maxSummaryChars = 120
+
+func truncateSummary(s string) string {
+	runes := []rune(s)
+	if len(runes) <= maxSummaryChars {
+		return s
+	}
+	return string(runes[:maxSummaryChars-3]) + "..."
+}
+
+// ReportChangeSummary prints a compact per-section summary of detected
+// changes after the dot line: failed sections with the first differing pair.
+func (r *VerifyReporter) ReportChangeSummary(changes []ChangeEntry) {
+	if len(changes) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(r.output, "\n\nCHANGES (%d):\n", len(changes))
+	for _, c := range changes {
+		loc := ""
+		if c.Line > 0 {
+			loc = fmt.Sprintf(":%d", c.Line)
+		}
+		_, _ = fmt.Fprintf(r.output, "  %s %s%s: %s -> %s\n",
+			c.File, c.Section, loc, truncateSummary(c.Expected), truncateSummary(c.Actual))
+	}
+}
+
 func (r *VerifyReporter) ReportSummary(passed, failed, xfail, xpass, total int) {
 	parts := []string{fmt.Sprintf("%d passed", passed)}
 	if failed > 0 {

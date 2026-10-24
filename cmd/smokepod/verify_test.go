@@ -92,7 +92,7 @@ func TestVerify_MissingFixtureSection(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo hello\nhello\n")
 
 	// fixture has NO section "foo"
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{})
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{})
 
 	err := runApp("smokepod", "verify",
 		"--target", "/bin/sh",
@@ -112,7 +112,7 @@ func TestVerify_StaleExtraFixtureSection(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo hello\nhello\n")
 
 	// fixture has "foo" AND "bar" (bar is stale)
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 		"bar": {{Line: 5, Command: "echo stale", Stdout: "stale\n", ExitCode: 0}},
 	})
@@ -135,7 +135,7 @@ func TestVerify_StaleExtraFixtureCommand(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo a\na\n\n$ echo b\nb\n")
 
 	// fixture has 3 commands for section "foo"
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {
 			{Line: 2, Command: "echo a", Stdout: "a\n", ExitCode: 0},
 			{Line: 4, Command: "echo b", Stdout: "b\n", ExitCode: 0},
@@ -161,7 +161,7 @@ func TestVerify_FewerFixtureCommands(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo a\na\n\n$ echo b\nb\n\n$ echo c\nc\n")
 
 	// fixture has 2 commands for section "foo"
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {
 			{Line: 2, Command: "echo a", Stdout: "a\n", ExitCode: 0},
 			{Line: 4, Command: "echo b", Stdout: "b\n", ExitCode: 0},
@@ -221,7 +221,7 @@ func TestVerify_PartialRun_ExtraUnselected(t *testing.T) {
 
 	// fixture has "foo" and "bar"
 	// With --run=foo, "bar" is outside selected scope and should be ignored
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 		"bar": {{Line: 5, Command: "echo extra", Stdout: "extra\n", ExitCode: 0}},
 	})
@@ -246,7 +246,7 @@ func TestVerify_PartialRun_StaleSelected(t *testing.T) {
 
 	// fixture has "foo" and "bar"
 	// With --run=foo,bar — "bar" is in selected scope but not in .test → stale → fail
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 		"bar": {{Line: 5, Command: "echo stale", Stdout: "stale\n", ExitCode: 0}},
 	})
@@ -270,7 +270,7 @@ func TestVerify_XFail_ExpectedFailure(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## broken (xfail)\n$ echo actual\nactual\n")
 
 	// Fixture records different output, so verify will see a mismatch
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"broken": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
 	})
 
@@ -292,7 +292,7 @@ func TestVerify_XPass_UnexpectedPass(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test", "## broken (xfail)\n$ echo hello\nhello\n")
 
 	// Fixture matches actual output, triggering xpass
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"broken": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 	})
 
@@ -314,7 +314,7 @@ func TestVerify_XFail_WithReason(t *testing.T) {
 	// Section with xfail reason, output won't match
 	writeTestFile(t, testsDir, "example.test", "## broken (xfail: known bug #99)\n$ echo actual\nactual\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"broken": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
 	})
 
@@ -335,7 +335,7 @@ func TestVerify_XFail_PartialPass(t *testing.T) {
 	// xfail section with 2 commands: one matches, one doesn't
 	writeTestFile(t, testsDir, "example.test", "## partial (xfail)\n$ echo match\nmatch\n\n$ echo actual\nactual\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"partial": {
 			{Line: 2, Command: "echo match", Stdout: "match\n", ExitCode: 0},
 			{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0},
@@ -360,7 +360,7 @@ func TestVerify_XFail_MixedWithNormal(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test",
 		"## normal\n$ echo hello\nhello\n\n## broken (xfail)\n$ echo actual\nactual\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"normal": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 		"broken": {{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
 	})
@@ -383,7 +383,7 @@ func TestVerify_XFail_MixedWithFailure(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test",
 		"## normal\n$ echo actual\nactual\n\n## broken (xfail)\n$ echo actual\nactual\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"normal": {{Line: 2, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
 		"broken": {{Line: 5, Command: "echo actual", Stdout: "wrong\n", ExitCode: 0}},
 	})
@@ -441,7 +441,7 @@ func TestVerify_RegexMatch(t *testing.T) {
 		"## dates\n$ date +%Y-%m-%d\n\\d{4}-\\d{2}-\\d{2} (re)\n")
 
 	// Fixture has a specific recorded date
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"dates": {{Line: 2, Command: "date +%Y-%m-%d", Stdout: "2026-03-18\n", ExitCode: 0}},
 	})
 
@@ -464,7 +464,7 @@ func TestVerify_RegexMismatch(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test",
 		"## nums\n$ echo not-a-number\n^\\d+$ (re)\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"nums": {{Line: 2, Command: "echo not-a-number", Stdout: "42\n", ExitCode: 0}},
 	})
 
@@ -485,7 +485,7 @@ func TestVerify_NoExpectations_BackwardCompat(t *testing.T) {
 	// .test has no expected output lines
 	writeTestFile(t, testsDir, "example.test", "## basic\n$ echo hello\nhello\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"basic": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
 	})
 
@@ -507,7 +507,7 @@ func TestVerify_MixedRegexAndLiteral(t *testing.T) {
 	writeTestFile(t, testsDir, "example.test",
 		"## mixed\n$ printf 'header\\n42\\nfooter\\n'\nheader\n\\d+ (re)\nfooter\n")
 
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"mixed": {{Line: 2, Command: "printf 'header\\n42\\nfooter\\n'", Stdout: "header\n999\nfooter\n", ExitCode: 0}},
 	})
 
@@ -530,7 +530,7 @@ func TestVerify_PartialMatchWithMismatch(t *testing.T) {
 		"## foo\n$ echo a\na\n\n$ echo b\nb\n\n$ echo c\nc\n")
 
 	// fixture has only 2 commands - the first two match
-	writeFixture(t, testsDir, fixturesDir,"example.fixture.json", map[string][]smokepod.FixtureCommand{
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
 		"foo": {
 			{Line: 2, Command: "echo a", Stdout: "a\n", ExitCode: 0},
 			{Line: 5, Command: "echo b", Stdout: "b\n", ExitCode: 0},
@@ -743,5 +743,208 @@ func TestProbe_MissingManifest(t *testing.T) {
 	)
 	if exitCode(err) != exitConfigError {
 		t.Fatalf("expected exit code %d, got %d (err: %v)", exitConfigError, exitCode(err), err)
+	}
+}
+
+// writeStubTarget writes an executable stub script that echoes its "mode"
+// argument's output. Used to simulate flaky targets for --repeat tests.
+func writeStubTarget(t *testing.T, script string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stub")
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestVerify_Repeat_FlakyStubFails(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	// Stub target: first invocation prints "flaky", later ones "stable".
+	state := filepath.Join(t.TempDir(), "state")
+	stub := writeStubTarget(t, "#!/bin/sh\n"+
+		"if [ -f "+shQuote(state)+" ]; then\n"+
+		"  rm -f "+shQuote(state)+"\n"+
+		"  echo stable\n"+
+		"else\n"+
+		"  touch "+shQuote(state)+"\n"+
+		"  echo flaky\n"+
+		"fi\n")
+
+	writeTestFile(t, testsDir, "example.test", "## runs\n$ \"$SMOKEPOD_TARGET\"\n")
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"runs": {{Line: 2, Command: `"$SMOKEPOD_TARGET"`, Stdout: "flaky\n", ExitCode: 0}},
+	})
+
+	var output string
+	var verifyErr error
+	output = captureStderr(t, func() {
+		verifyErr = runApp("smokepod", "verify",
+			"--target", stub,
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+			"--repeat", "3",
+		)
+	})
+
+	// Run 1 matches the fixture ("flaky"), run 2 diverges ("stable"), run 3
+	// matches again: pass^3 fails and the report shows which run diverged.
+	if exitCode(verifyErr) != exitTestFailure {
+		t.Fatalf("expected exit code %d for flaky stub under --repeat 3, got %d (err: %v)", exitTestFailure, exitCode(verifyErr), verifyErr)
+	}
+	if !strings.Contains(output, "1/3 runs failed") {
+		t.Errorf("output = %q, want per-run status naming 1/3 failed runs", output)
+	}
+}
+
+func TestVerify_Repeat_StableStubPasses(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	stub := writeStubTarget(t, "#!/bin/sh\necho stable\n")
+
+	writeTestFile(t, testsDir, "example.test", "## runs\n$ \"$SMOKEPOD_TARGET\"\n")
+	writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"runs": {{Line: 2, Command: `"$SMOKEPOD_TARGET"`, Stdout: "stable\n", ExitCode: 0}},
+	})
+
+	err := runApp("smokepod", "verify",
+		"--target", stub,
+		"--tests", testsDir,
+		"--fixtures", fixturesDir,
+		"--repeat", "3",
+	)
+	if err != nil {
+		t.Errorf("expected stable stub to pass --repeat 3, got: %v", err)
+	}
+}
+
+func TestVerify_NormalizeTimestamps(t *testing.T) {
+	t.Run("passes with normalize directive", func(t *testing.T) {
+		testsDir := t.TempDir()
+		fixturesDir := t.TempDir()
+
+		// Recorded long ago; the re-run prints today's date. The timestamps
+		// filter normalizes both sides so verify passes.
+		writeTestFile(t, testsDir, "example.test",
+			"# normalize: timestamps\n\n## ts\n$ date -u +%Y-%m-%dT%H:%M:%SZ\n2026-03-18T10:20:30Z\n")
+		writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+			"ts": {{Line: 3, Command: "date -u +%Y-%m-%dT%H:%M:%SZ", Stdout: "2000-01-01T00:00:00Z\n", ExitCode: 0}},
+		})
+
+		err := runApp("smokepod", "verify",
+			"--target", "/bin/sh",
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+		)
+		if err != nil {
+			t.Errorf("expected verify to pass with # normalize: timestamps, got: %v", err)
+		}
+	})
+
+	t.Run("fails without normalize directive", func(t *testing.T) {
+		testsDir := t.TempDir()
+		fixturesDir := t.TempDir()
+
+		// Same setup without the directive: the timestamp churn must fail.
+		writeTestFile(t, testsDir, "example.test",
+			"## ts\n$ date -u +%Y-%m-%dT%H:%M:%SZ\n2026-03-18T10:20:30Z\n")
+		writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+			"ts": {{Line: 2, Command: "date -u +%Y-%m-%dT%H:%M:%SZ", Stdout: "2000-01-01T00:00:00Z\n", ExitCode: 0}},
+		})
+
+		err := runApp("smokepod", "verify",
+			"--target", "/bin/sh",
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+		)
+		if exitCode(err) != exitTestFailure {
+			t.Errorf("expected exit code %d without the normalize directive, got %d (err: %v)", exitTestFailure, exitCode(err), err)
+		}
+	})
+}
+
+func TestVerify_JSONTier_KeyOrderIndependent(t *testing.T) {
+	t.Run("reordered keys pass", func(t *testing.T) {
+		testsDir := t.TempDir()
+		fixturesDir := t.TempDir()
+
+		// Recorded order a,b; the target now prints b,a. Structural
+		// comparison under (json) treats them as equal.
+		writeTestFile(t, testsDir, "example.test",
+			"## j\n$ echo '{\"b\":2,\"a\":1}'\n{\"a\":1,\"b\":2} (json)\n")
+		writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+			"j": {{Line: 2, Command: `echo '{"b":2,"a":1}'`, Stdout: "{\"a\":1,\"b\":2}\n", ExitCode: 0}},
+		})
+
+		err := runApp("smokepod", "verify",
+			"--target", "/bin/sh",
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+		)
+		if err != nil {
+			t.Errorf("expected key-reordered JSON to pass under (json), got: %v", err)
+		}
+	})
+
+	t.Run("changed values fail", func(t *testing.T) {
+		testsDir := t.TempDir()
+		fixturesDir := t.TempDir()
+
+		writeTestFile(t, testsDir, "example.test",
+			"## j\n$ echo '{\"a\":9,\"b\":2}'\n{\"a\":1,\"b\":2} (json)\n")
+		writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+			"j": {{Line: 2, Command: `echo '{"a":9,"b":2}'`, Stdout: "{\"a\":1,\"b\":2}\n", ExitCode: 0}},
+		})
+
+		err := runApp("smokepod", "verify",
+			"--target", "/bin/sh",
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+		)
+		if exitCode(err) != exitTestFailure {
+			t.Errorf("expected exit code %d for mismatched JSON values, got %d (err: %v)", exitTestFailure, exitCode(err), err)
+		}
+	})
+}
+
+func TestProbe_TargetPerturb_DetectsBehaviorChange(t *testing.T) {
+	testsDir := t.TempDir()
+	fixturesDir := t.TempDir()
+
+	writeTestFile(t, testsDir, "example.test", "## foo\n$ echo hello\nhello\n")
+	fixturePath := writeFixture(t, testsDir, fixturesDir, "example.fixture.json", map[string][]smokepod.FixtureCommand{
+		"foo": {{Line: 2, Command: "echo hello", Stdout: "hello\n", ExitCode: 0}},
+	})
+	before, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var output string
+	var probeErr error
+	output = captureStderr(t, func() {
+		probeErr = runApp("smokepod", "probe",
+			"--target", "/bin/sh",
+			"--tests", testsDir,
+			"--fixtures", fixturesDir,
+			"--target-perturb",
+		)
+	})
+
+	if probeErr != nil {
+		t.Fatalf("expected probe success (behavior change detected), got %v", probeErr)
+	}
+	if !strings.Contains(output, "protection verified") {
+		t.Errorf("output = %q, want \"protection verified\"", output)
+	}
+
+	after, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Error("target-perturb probe must not modify recorded fixtures")
 	}
 }

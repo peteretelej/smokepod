@@ -133,6 +133,28 @@ $ curl http://api/users/1
 
 The regex pattern is matched against the actual output line.
 
+### Normalized Matching
+
+Suffix a line with ` (norm)` for a whitespace-insensitive, case-insensitive match: whitespace runs collapse to a single space and letter case is ignored before comparing:
+
+```
+$ greet
+HELLO   WORLD (norm)
+```
+
+Both `hello world` and `HELLO WORLD` match the expectation above; different words do not.
+
+### JSON Matching
+
+Suffix a line with ` (json)` for structural JSON comparison: both lines must parse as JSON and compare by value, independent of object key order. Array order is significant:
+
+```
+$ curl http://api/users/1
+{"id":1,"name":"ada"} (json)
+```
+
+`{"name":"ada","id":1}` matches (key order differs, values equal). A changed value, a missing key, or a reordered array fails. If either line is not valid JSON, the comparison fails and names the offending side. Combine with `(stderr)` as ` (json,stderr)` for stderr output.
+
 ### Stderr Matching
 
 Suffix a line with ` (stderr)` to match against stderr instead of stdout:
@@ -190,12 +212,36 @@ Supported directives:
 | `# target: path` | Target binary for this file. Used when no `--target` CLI flag is given. |
 | `# target-arg: arg` | Argument passed to the target. Repeatable for multiple args. Used when no `--target-arg` CLI flags are given. |
 | `# mode: shell\|process\|wrap` | Execution mode. Used when no `--mode` CLI flag is given. Defaults to `shell`. |
+| `# normalize: filter,...` | Built-in normalization filters applied to expected and actual output before comparison in verify mode. |
 
 CLI flags take priority over file directives (per field). If neither a CLI flag nor a directive provides a target, the command fails with an actionable error message.
 
 Only one `# target` directive is allowed per file. Multiple `# target-arg` directives are collected in order.
 
 Lines matching `# key: value` after the first section header are treated as regular comments.
+
+#### Normalization filters
+
+Output that changes on every run (timestamps, request IDs, absolute paths) breaks exact fixture comparison. The `# normalize:` directive replaces volatile content before comparing, so recorded baselines stay stable:
+
+```
+# normalize: timestamps, uuids
+
+## status
+$ curl -s http://localhost:8080/status
+{"at":"2026-03-18T10:20:30Z","req":"550e8400-e29b-41d4-a716-446655440000"}
+```
+
+Built-in filters (the set is closed; unknown names are a parse error):
+
+| Filter | Replaces | With |
+|--------|----------|------|
+| `timestamps` | ISO 8601 timestamps, dates (`YYYY-MM-DD`), times (`HH:MM:SS`) | `<timestamp>` |
+| `uuids` | UUIDs | `<uuid>` |
+| `paths` | Slash-separated file paths (Unix style) | `<path>` |
+| `whitespace` | Each whitespace run with a single space (and trims the ends) | single spaces |
+
+Filters apply to both the recorded fixture and the re-run output, in the order listed, to stdout and stderr alike. Normalization affects record/verify comparison; `run` mode compares inline expectations and ignores the directive. The `paths` filter rewrites any slash-separated path-like text, including path portions of URLs - avoid it for output containing URLs, or use `(re)` for those lines instead.
 
 ### Comments
 
@@ -347,3 +393,5 @@ Structural failures (stale or missing sections, command count mismatches) are re
 To accept legitimate changes, run `smokepod update`: it re-records only the drifted fixtures (or everything with `--all`), renders old-vs-new output per section, and rewrites fixtures plus manifest only after explicit approval (interactive confirmation, or `--yes` for scripts and agents). Without approval nothing is changed and the exit code is non-zero. Like `record`, `update` refuses to run in CI environments; CI baseline changes go through reviewed PRs.
 
 `smokepod probe` is a self-test for the protection layer: it copies your fixtures to a temporary directory, tampers with one recorded value, and asserts that `verify` catches it and names the tampered file. It exits 0 with `protection verified` when detection works.
+
+`smokepod probe --target-perturb` proves the other direction: it wraps the live target in a shim that appends a marker line to the target's stdout, re-runs `verify` against the untouched fixtures, and requires `verify` to fail. Because the recorded side is untouched (the manifest still matches), the failure can only come from detecting a real behavior change in the target.

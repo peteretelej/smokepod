@@ -195,6 +195,11 @@ func verifyCommand() *cli.Command {
 				Name:  "allow-empty",
 				Usage: "Allow empty test discovery (no .test files found)",
 			},
+			&cli.IntFlag{
+				Name:  "repeat",
+				Usage: "Run every section k times; all runs must match to pass (default 1)",
+				Value: 1,
+			},
 		},
 		Action: verifyAction,
 	}
@@ -283,6 +288,10 @@ func probeCommand() *cli.Command {
 				Name:  "timeout",
 				Usage: "Command timeout",
 				Value: 30 * time.Second,
+			},
+			&cli.BoolFlag{
+				Name:  "target-perturb",
+				Usage: "Perturb the live target (append a marker to its stdout) and require verify to detect it",
 			},
 		},
 		Action: probeAction,
@@ -609,6 +618,10 @@ func verifyAction(ctx context.Context, cmd *cli.Command) error {
 	timeout := cmd.Duration("timeout")
 	jsonOutput := cmd.Bool("json")
 	allowEmpty := cmd.Bool("allow-empty")
+	repeat := cmd.Int("repeat")
+	if repeat < 1 {
+		return cli.Exit(fmt.Sprintf("--repeat must be >= 1, got %d", repeat), exitConfigError)
+	}
 
 	testFiles, err := smokepod.FindTestFiles(testsPath)
 	if err != nil {
@@ -638,10 +651,10 @@ func verifyAction(ctx context.Context, cmd *cli.Command) error {
 		cancel()
 	}()
 
-	return runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput, cmd.String("run"))
+	return runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput, cmd.String("run"), repeat)
 }
 
-func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast, jsonOutput bool, runFlag string) error {
+func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast, jsonOutput bool, runFlag string, repeat int) error {
 	// Baseline protection: load the recorded manifest and compare it with the
 	// current state on disk before running anything.
 	recorded, err := smokepod.LoadManifest(fixturesPath)
@@ -698,6 +711,7 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 	sectionsXPass := 0
 	sectionsTotal := 0
 	var allSectionResults []smokepod.SectionResult
+	var changeEntries []smokepod.ChangeEntry
 
 	for _, testFile := range testFiles {
 		fixturePath := smokepod.FixturePathFromTest(testFile, testsPath, fixturesPath)
@@ -896,40 +910,79 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 				countMismatch = true
 			}
 
+			changeAdded := false
 			for i := 0; i < commandCount; i++ {
 				tcmd := section.Commands[i]
-				result, err := targetExec.Exec(ctx, tcmd.Cmd)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
-					sectionPassed = false
-					continue
+				failedRuns := 0
+				var mismatchDiff string
+				var entry smokepod.ChangeEntry
+				for run := 1; run <= repeat; run++ {
+					result, err := targetExec.Exec(ctx, tcmd.Cmd)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
+						sectionPassed = false
+						failedRuns++
+						continue
+					}
+
+					expected := fixtureCommands[i]
+
+					testExpected := section.Commands[i].Expected
+					stdoutResult := smokepod.CompareOutputWithExpectations(
+						expected.Stdout, result.Stdout, testExpected, false, tf.Normalize)
+					stderrResult := smokepod.CompareOutputWithExpectations(
+						expected.Stderr, result.Stderr, testExpected, true, tf.Normalize)
+					exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
+
+					if !stdoutResult.Matched || !stderrResult.Matched || !exitMatched {
+						sectionPassed = false
+						failedRuns++
+
+						// Keep the first divergent run's diff and pair so the
+						// report stays compact when runs disagree.
+						if mismatchDiff == "" {
+							var diffParts []string
+							if !stdoutResult.Matched {
+								diffParts = append(diffParts, "stdout:\n"+stdoutResult.Diff)
+							}
+							if !stderrResult.Matched {
+								diffParts = append(diffParts, "stderr:\n"+stderrResult.Diff)
+							}
+							if !exitMatched {
+								diffParts = append(diffParts, fmt.Sprintf("Exit code: expected %d, got %d", expected.ExitCode, result.ExitCode))
+							}
+							mismatchDiff = strings.Join(diffParts, "\n")
+
+							entry = smokepod.ChangeEntry{
+								File:     testFile,
+								Section:  section.Name,
+								Line:     stdoutResult.FirstLine,
+								Expected: stdoutResult.FirstExpected,
+								Actual:   stdoutResult.FirstActual,
+							}
+							if stdoutResult.Matched {
+								entry.Line = stderrResult.FirstLine
+								entry.Expected = stderrResult.FirstExpected
+								entry.Actual = stderrResult.FirstActual
+								if stderrResult.Matched {
+									entry.Line = 0
+									entry.Expected = fmt.Sprintf("exit %d", expected.ExitCode)
+									entry.Actual = fmt.Sprintf("exit %d", result.ExitCode)
+								}
+							}
+						}
+					}
 				}
 
-				expected := fixtureCommands[i]
-
-				testExpected := section.Commands[i].Expected
-				stdoutResult := smokepod.CompareOutputWithExpectations(
-					expected.Stdout, result.Stdout, testExpected, false)
-				stderrResult := smokepod.CompareOutputWithExpectations(
-					expected.Stderr, result.Stderr, testExpected, true)
-				exitMatched := smokepod.CompareExitCode(expected.ExitCode, result.ExitCode)
-
-				if !stdoutResult.Matched || !stderrResult.Matched || !exitMatched {
-					sectionPassed = false
-
-					var diffParts []string
-					if !stdoutResult.Matched {
-						diffParts = append(diffParts, "stdout:\n"+stdoutResult.Diff)
+				if failedRuns > 0 && mismatchDiff != "" && !section.XFail {
+					name := fmt.Sprintf("%s / %s", section.Name, tcmd.Cmd)
+					if repeat > 1 {
+						name += fmt.Sprintf(" (%d/%d runs failed)", failedRuns, repeat)
 					}
-					if !stderrResult.Matched {
-						diffParts = append(diffParts, "stderr:\n"+stderrResult.Diff)
-					}
-					if !exitMatched {
-						diffParts = append(diffParts, fmt.Sprintf("Exit code: expected %d, got %d", expected.ExitCode, result.ExitCode))
-					}
-
-					if !section.XFail {
-						reporter.ReportFailure(fmt.Sprintf("%s / %s", section.Name, tcmd.Cmd), strings.Join(diffParts, "\n"))
+					reporter.ReportFailure(name, mismatchDiff)
+					if !changeAdded {
+						changeAdded = true
+						changeEntries = append(changeEntries, entry)
 					}
 				}
 			}
@@ -981,6 +1034,7 @@ func runVerify(ctx context.Context, cliTarget string, cliTargetArgs []string, cl
 		}
 	}
 
+	reporter.ReportChangeSummary(changeEntries)
 	reporter.ReportSummary(sectionsPassed, sectionsFailed, sectionsXFail, sectionsXPass, sectionsTotal)
 
 	if jsonOutput {
@@ -1226,6 +1280,8 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+const probePerturbMarker = "PROBE-PERTURBED-BEHAVIOR"
+
 func probeAction(ctx context.Context, cmd *cli.Command) error {
 	cliTarget := cmd.String("target")
 	cliTargetArgs := cmd.StringSlice("target-arg")
@@ -1240,6 +1296,10 @@ func probeAction(ctx context.Context, cmd *cli.Command) error {
 			return cli.Exit("no "+smokepod.ManifestFileName+" in "+fixturesPath+"; run `smokepod record` first - probe needs a protected baseline", exitConfigError)
 		}
 		return cli.Exit(fmt.Sprintf("Error reading manifest: %v", err), exitRuntimeError)
+	}
+
+	if cmd.Bool("target-perturb") {
+		return probeTargetPerturb(ctx, cliTarget, cliTargetArgs, cliMode, testsPath, fixturesPath, timeout)
 	}
 
 	// Pick the first recorded command (sorted for determinism) to perturb.
@@ -1333,7 +1393,7 @@ func runVerifyCaptured(ctx context.Context, cliTarget string, cliTargetArgs []st
 		return "", err
 	}
 	os.Stderr = w
-	verifyErr := runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, false, false, "")
+	verifyErr := runVerify(ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, false, false, "", 1)
 	_ = w.Close()
 	os.Stderr = old
 
@@ -1341,6 +1401,76 @@ func runVerifyCaptured(ctx context.Context, cliTarget string, cliTargetArgs []st
 	_, _ = buf.ReadFrom(r)
 	_ = r.Close()
 	return buf.String(), verifyErr
+}
+
+// probeTargetPerturb wraps the resolved target in a shim that appends a
+// marker line to its stdout, then requires verify to fail against the
+// untouched fixtures. The perturbation is on the actual side, so the
+// manifest still matches and the failure can only come from verify
+// detecting a real behavior change in the live target.
+func probeTargetPerturb(ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testsPath, fixturesPath string, timeout time.Duration) error {
+	if timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+		defer timeoutCancel()
+	}
+
+	testFiles, err := smokepod.FindTestFiles(testsPath)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error finding test files: %v", err), exitConfigError)
+	}
+	if len(testFiles) == 0 {
+		return cli.Exit("no .test files found in "+testsPath, exitConfigError)
+	}
+
+	// Shim the first test file's target (deterministic walk order) and
+	// verify only that file: one detected change is the proof.
+	targetFile := testFiles[0]
+	tf, err := testfile.Parse(targetFile)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error parsing %s: %v", targetFile, err), exitConfigError)
+	}
+	resolvedTarget, resolvedArgs, resolvedMode, err := resolveTarget(targetFile, tf.Metadata, cliTarget, cliTargetArgs, cliMode)
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error: %v", err), exitConfigError)
+	}
+	if resolvedMode == "process" {
+		return cli.Exit("probe --target-perturb does not support process mode: a shim cannot append to a persistent target's recorded stdout", exitConfigError)
+	}
+
+	tmpRoot, err := os.MkdirTemp("", "smokepod-probe-shim-")
+	if err != nil {
+		return cli.Exit(fmt.Sprintf("Error creating probe temp dir: %v", err), exitRuntimeError)
+	}
+	defer func() { _ = os.RemoveAll(tmpRoot) }()
+
+	// Named after the real target so verify's shell-target detection treats
+	// the shim exactly like the binary it replaces.
+	shimPath := filepath.Join(tmpRoot, filepath.Base(resolvedTarget))
+	shim := "#!/bin/sh\n" +
+		shQuote(resolvedTarget) + ` "$@"` + "\n" +
+		"rc=$?\n" +
+		"echo " + probePerturbMarker + "\n" +
+		"exit $rc\n"
+	if err := os.WriteFile(shimPath, []byte(shim), 0755); err != nil {
+		return cli.Exit(fmt.Sprintf("Error writing probe shim: %v", err), exitRuntimeError)
+	}
+
+	output, verifyErr := runVerifyCaptured(ctx, shimPath, resolvedArgs, resolvedMode, []string{targetFile}, testsPath, fixturesPath)
+	if verifyErr == nil {
+		return cli.Exit(fmt.Sprintf("protection failed: verify did not detect the perturbed target %s", resolvedTarget), exitTestFailure)
+	}
+	if !strings.Contains(output, probePerturbMarker) {
+		return cli.Exit(fmt.Sprintf("protection failed: verify failure was not caused by the target perturbation for %s", resolvedTarget), exitTestFailure)
+	}
+
+	fmt.Fprintf(os.Stderr, "protection verified: verify detected the perturbed target %s (%s)\n", resolvedTarget, targetFile)
+	return nil
+}
+
+// shQuote single-quotes s for safe use as one shell word.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // updateScope picks the test files to re-record: everything with --all,

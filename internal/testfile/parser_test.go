@@ -641,6 +641,115 @@ func TestParse_Metadata(t *testing.T) {
 	})
 }
 
+func writeTempTest(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp("", "normalize*.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return f.Name()
+}
+
+func TestParse_NormalizeDirective(t *testing.T) {
+	t.Run("single filter", func(t *testing.T) {
+		path := writeTempTest(t, "# normalize: timestamps\n\n## basic\n$ echo hello\nhello\n")
+		tf, err := Parse(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"timestamps"}
+		if len(tf.Normalize) != len(want) || tf.Normalize[0] != want[0] {
+			t.Errorf("Normalize = %v, want %v", tf.Normalize, want)
+		}
+	})
+
+	t.Run("comma-separated filters with spaces", func(t *testing.T) {
+		path := writeTempTest(t, "# normalize: timestamps, uuids , paths\n\n## basic\n$ echo hello\nhello\n")
+		tf, err := Parse(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"timestamps", "uuids", "paths"}
+		if len(tf.Normalize) != len(want) {
+			t.Fatalf("Normalize = %v, want %v", tf.Normalize, want)
+		}
+		for i := range want {
+			if tf.Normalize[i] != want[i] {
+				t.Errorf("Normalize[%d] = %q, want %q", i, tf.Normalize[i], want[i])
+			}
+		}
+	})
+
+	t.Run("unknown filter is a parse error with suggestion", func(t *testing.T) {
+		path := writeTempTest(t, "# normalize: timestamp\n\n## basic\n$ echo hello\nhello\n")
+		_, err := Parse(path)
+		if err == nil {
+			t.Fatal("expected parse error for unknown filter, got nil")
+		}
+		if !strings.Contains(err.Error(), "unknown normalize filter") {
+			t.Errorf("error = %q, want it to mention the unknown filter", err.Error())
+		}
+		if !strings.Contains(err.Error(), `"timestamps"`) {
+			t.Errorf("error = %q, want a suggestion", err.Error())
+		}
+	})
+
+	t.Run("empty filter is a parse error", func(t *testing.T) {
+		path := writeTempTest(t, "# normalize: timestamps,,uuids\n\n## basic\n$ echo hello\nhello\n")
+		_, err := Parse(path)
+		if err == nil {
+			t.Fatal("expected parse error for empty filter, got nil")
+		}
+		if !strings.Contains(err.Error(), "empty normalize filter") {
+			t.Errorf("error = %q, want it to mention the empty filter", err.Error())
+		}
+	})
+}
+
+func TestParse_NormAndJSONSuffixes(t *testing.T) {
+	path := writeTempTest(t, "## tiers\n$ echo one\nONE (norm)\n$ echo '{\"a\":1}'\n{\"a\":1} (json)\n$ echo err\n{} (json,stderr)\n")
+	tf, err := Parse(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	section := requireSection(t, tf, "tiers")
+	if len(section.Commands) != 3 {
+		t.Fatalf("commands = %d, want 3", len(section.Commands))
+	}
+
+	norm := section.Commands[0].Expected[0]
+	if !norm.IsNorm {
+		t.Error("expected IsNorm=true for (norm)")
+	}
+	if norm.IsJSON || norm.IsRegex {
+		t.Error("(norm) should not set IsJSON or IsRegex")
+	}
+	if norm.Text != "ONE" {
+		t.Errorf("text = %q, want %q", norm.Text, "ONE")
+	}
+
+	js := section.Commands[1].Expected[0]
+	if !js.IsJSON {
+		t.Error("expected IsJSON=true for (json)")
+	}
+	if js.IsNorm {
+		t.Error("(json) should not set IsNorm")
+	}
+
+	combined := section.Commands[2].Expected[0]
+	if !combined.IsJSON || !combined.IsStderr {
+		t.Errorf("(json,stderr) should set both, got json=%v stderr=%v", combined.IsJSON, combined.IsStderr)
+	}
+}
+
 func TestParse_XFailLineNumbers(t *testing.T) {
 	tf, err := Parse(testdataPath("xfail.test"))
 	if err != nil {

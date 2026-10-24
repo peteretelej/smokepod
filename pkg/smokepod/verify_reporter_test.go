@@ -58,12 +58,58 @@ func TestVerifyReporter_ReportXPass(t *testing.T) {
 	})
 }
 
+func TestVerifyReporter_ReportChangeSummary(t *testing.T) {
+	t.Run("empty list prints nothing", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := NewVerifyReporter(&buf)
+		r.ReportChangeSummary(nil)
+		if buf.Len() != 0 {
+			t.Errorf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("lists file, section, and first differing pair", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := NewVerifyReporter(&buf)
+		r.ReportChangeSummary([]ChangeEntry{
+			{File: "example.test", Section: "status", Line: 3, Expected: `{"status":"ok"}`, Actual: `{"status":"error"}`},
+			{File: "other.test", Section: "exit", Expected: "exit 0", Actual: "exit 1"},
+		})
+		output := buf.String()
+		if !strings.Contains(output, "CHANGES (2):") {
+			t.Errorf("output should contain the change count, got: %q", output)
+		}
+		if !strings.Contains(output, "example.test status:3: {\"status\":\"ok\"} -> {\"status\":\"error\"}") {
+			t.Errorf("output should list the differing pair, got: %q", output)
+		}
+		if !strings.Contains(output, "other.test exit: exit 0 -> exit 1") {
+			t.Errorf("exit-only entry should omit the line, got: %q", output)
+		}
+	})
+
+	t.Run("long values are truncated", func(t *testing.T) {
+		var buf bytes.Buffer
+		r := NewVerifyReporter(&buf)
+		long := strings.Repeat("x", 300)
+		r.ReportChangeSummary([]ChangeEntry{
+			{File: "f.test", Section: "s", Line: 1, Expected: long, Actual: "short"},
+		})
+		output := buf.String()
+		if strings.Count(output, "x") > maxSummaryChars {
+			t.Errorf("expected value should be truncated to %d chars, got:\n%s", maxSummaryChars, output)
+		}
+		if !strings.Contains(output, "...") {
+			t.Errorf("truncation should be visible, got: %q", output)
+		}
+	})
+}
+
 func TestVerifyReporter_ReportSummary(t *testing.T) {
 	tests := []struct {
-		name                            string
+		name                                string
 		passed, failed, xfail, xpass, total int
-		wantContains                    []string
-		wantNotContains                 []string
+		wantContains                        []string
+		wantNotContains                     []string
 	}{
 		{
 			name:            "all pass",

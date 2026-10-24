@@ -8,14 +8,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/peteretelej/smokepod/internal/normalize"
 )
 
 // TestFile represents a parsed .test file.
 type TestFile struct {
 	Sections map[string]*Section
-	Order    []string             // preserve section order
-	Metadata map[string][]string  // directives from pre-section comments
-	Warnings []string             // parser warnings (non-fatal)
+	Order    []string            // preserve section order
+	Metadata map[string][]string // directives from pre-section comments
+	Warnings []string            // parser warnings (non-fatal)
+	// Normalize holds the built-in filter names from `# normalize:`
+	// directives, applied to expected and actual output before comparison.
+	Normalize []string
 }
 
 // Section is a named group of commands.
@@ -41,6 +46,8 @@ type Expect struct {
 	Text     string
 	IsRegex  bool
 	IsStderr bool
+	IsNorm   bool // whitespace-insensitive, case-insensitive match
+	IsJSON   bool // structural JSON match (key order independent, arrays ordered)
 }
 
 // parser state
@@ -63,15 +70,15 @@ func (e *ParseError) Error() string {
 }
 
 var (
-	sectionPattern   = regexp.MustCompile(`^##\s+(\S+)(?:\s+\((xfail)(?::\s*([^)]+))?\))?`)
-	commandPattern   = regexp.MustCompile(`^\$\s+(.+)`)
-	exitCodePattern  = regexp.MustCompile(`^\[exit:(\d+)\]$`)
-	suffixPattern    = regexp.MustCompile(`\s+\((re|stderr)(?:,(re|stderr))*\)$`)
-	metadataPattern  = regexp.MustCompile(`^#\s+(\w[\w-]*):\s+(.+)$`)
+	sectionPattern  = regexp.MustCompile(`^##\s+(\S+)(?:\s+\((xfail)(?::\s*([^)]+))?\))?`)
+	commandPattern  = regexp.MustCompile(`^\$\s+(.+)`)
+	exitCodePattern = regexp.MustCompile(`^\[exit:(\d+)\]$`)
+	suffixPattern   = regexp.MustCompile(`\s+\((re|stderr|norm|json)(?:,(re|stderr|norm|json))*\)$`)
+	metadataPattern = regexp.MustCompile(`^#\s+(\w[\w-]*):\s+(.+)$`)
 )
 
 var knownDirectives = map[string]bool{
-	"target": true, "target-arg": true, "mode": true, "xfail": true,
+	"target": true, "target-arg": true, "mode": true, "xfail": true, "normalize": true,
 }
 
 func editDistance(a, b string) int {
@@ -101,6 +108,42 @@ func closestDirective(key string) string {
 	bestDist := 3 // threshold: suggest only if distance <= 2
 	for known := range knownDirectives {
 		d := editDistance(key, known)
+		if d < bestDist || (d == bestDist && known < best) {
+			bestDist = d
+			best = known
+		}
+	}
+	return best
+}
+
+// parseNormalizeFilters validates a `# normalize:` value: a comma-separated
+// list of built-in filter names. The set is closed, so an unknown name is a
+// parse error (with a suggestion when one is close) rather than a silently
+// ignored filter.
+func parseNormalizeFilters(value string, lineNum int) ([]string, error) {
+	var filters []string
+	for _, part := range strings.Split(value, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			return nil, &ParseError{Line: lineNum, Message: "empty normalize filter in # normalize: directive"}
+		}
+		if !normalize.Valid(name) {
+			msg := fmt.Sprintf("unknown normalize filter %q (built-in filters: %s)", name, strings.Join(normalize.Filters, ", "))
+			if suggestion := closestFilter(name); suggestion != "" {
+				msg += fmt.Sprintf(", did you mean %q?", suggestion)
+			}
+			return nil, &ParseError{Line: lineNum, Message: msg}
+		}
+		filters = append(filters, name)
+	}
+	return filters, nil
+}
+
+func closestFilter(name string) string {
+	best := ""
+	bestDist := 3 // threshold: suggest only if distance <= 2
+	for _, known := range normalize.Filters {
+		d := editDistance(name, known)
 		if d < bestDist || (d == bestDist && known < best) {
 			bestDist = d
 			best = known
@@ -143,6 +186,14 @@ func Parse(path string) (*TestFile, error) {
 						tf.Metadata = make(map[string][]string)
 					}
 					tf.Metadata[key] = append(tf.Metadata[key], value)
+
+					if key == "normalize" {
+						filters, err := parseNormalizeFilters(value, lineNum)
+						if err != nil {
+							return nil, err
+						}
+						tf.Normalize = append(tf.Normalize, filters...)
+					}
 
 					// Warn on unknown directives
 					if !knownDirectives[key] {
@@ -242,9 +293,11 @@ func Parse(path string) (*TestFile, error) {
 				continue
 			}
 
-			// Parse suffix flags: (re), (stderr), (stderr,re), (re,stderr)
+			// Parse suffix flags: (re), (stderr), (norm), (json), combinable
 			isRegex := false
 			isStderr := false
+			isNorm := false
+			isJSON := false
 			text := line
 			if loc := suffixPattern.FindStringIndex(line); loc != nil {
 				suffix := line[loc[0]:]
@@ -257,6 +310,10 @@ func Parse(path string) (*TestFile, error) {
 						isRegex = true
 					case "stderr":
 						isStderr = true
+					case "norm":
+						isNorm = true
+					case "json":
+						isJSON = true
 					}
 				}
 			}
@@ -266,6 +323,8 @@ func Parse(path string) (*TestFile, error) {
 				Text:     text,
 				IsRegex:  isRegex,
 				IsStderr: isStderr,
+				IsNorm:   isNorm,
+				IsJSON:   isJSON,
 			})
 		}
 	}
