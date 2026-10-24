@@ -4,7 +4,7 @@
 record how your CLI behaves, make every change prove parity.**
 
 [![CI](https://github.com/peteretelej/smokepod/actions/workflows/ci.yml/badge.svg)](https://github.com/peteretelej/smokepod/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/peteretelej/smokepod)](https://goreportcard.com/report/github.com/peteretelej/smokepod)
+[![npm](https://img.shields.io/npm/v/smokepod)](https://www.npmjs.com/package/smokepod)
 [![Go Reference](https://pkg.go.dev/badge/github.com/peteretelej/smokepod.svg)](https://pkg.go.dev/github.com/peteretelej/smokepod)
 
 Smokepod is snapshot testing for CLIs - what testing literature calls
