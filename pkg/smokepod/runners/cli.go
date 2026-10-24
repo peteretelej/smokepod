@@ -175,17 +175,17 @@ func formatDiff(expected []testfile.Expect, actual []string) (string, bool) {
 			suffix := expectSuffix(expected[i])
 			if !expected[i].IsRegex && whitespace.IsWhitespaceDiff(expected[i].Text, actual[i]) {
 				hasWSDiff = true
-				b.WriteString(fmt.Sprintf("- %s%s\n", whitespace.RenderWhitespace(expected[i].Text), suffix))
-				b.WriteString(fmt.Sprintf("+ %s\n", whitespace.RenderWhitespace(actual[i])))
+				fmt.Fprintf(&b, "- %s%s\n", whitespace.RenderWhitespace(expected[i].Text), suffix)
+				fmt.Fprintf(&b, "+ %s\n", whitespace.RenderWhitespace(actual[i]))
 			} else {
-				b.WriteString(fmt.Sprintf("- %s%s\n", expected[i].Text, suffix))
-				b.WriteString(fmt.Sprintf("+ %s\n", actual[i]))
+				fmt.Fprintf(&b, "- %s%s\n", expected[i].Text, suffix)
+				fmt.Fprintf(&b, "+ %s\n", actual[i])
 			}
 		} else if i < len(expected) {
 			suffix := expectSuffix(expected[i])
-			b.WriteString(fmt.Sprintf("- %s%s\n", expected[i].Text, suffix))
+			fmt.Fprintf(&b, "- %s%s\n", expected[i].Text, suffix)
 		} else {
-			b.WriteString(fmt.Sprintf("+ %s\n", actual[i]))
+			fmt.Fprintf(&b, "+ %s\n", actual[i])
 		}
 	}
 

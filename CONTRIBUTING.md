@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.27+
 - Docker
 - golangci-lint (optional, for linting)
 

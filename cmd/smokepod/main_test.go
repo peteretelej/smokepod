@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,15 +10,15 @@ import (
 	"testing"
 
 	"github.com/peteretelej/smokepod/pkg/smokepod"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func testdataPath(name string) string {
 	return filepath.Join("..", "..", "testdata", "fixtures", name)
 }
 
-func newTestApp() *cli.App {
-	return &cli.App{
+func newTestApp() *cli.Command {
+	return &cli.Command{
 		Name:    "smokepod",
 		Version: smokepod.VersionString(),
 		Commands: []*cli.Command{
@@ -37,7 +38,7 @@ func init() {
 }
 
 // quietTestApp returns an app with suppressed output for error tests.
-func quietTestApp() *cli.App {
+func quietTestApp() *cli.Command {
 	app := newTestApp()
 	app.Writer = io.Discard
 	app.ErrWriter = io.Discard
@@ -52,7 +53,7 @@ func TestCLI_Validate_Valid(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	err := app.Run([]string{"smokepod", "validate", testdataPath("valid.yaml")})
+	err := app.Run(context.Background(), []string{"smokepod", "validate", testdataPath("valid.yaml")})
 
 	_ = w.Close()
 	os.Stderr = old
@@ -77,7 +78,7 @@ func TestCLI_Validate_Valid(t *testing.T) {
 func TestCLI_Validate_Invalid(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "validate", testdataPath("missing-name.yaml")})
+	err := app.Run(context.Background(), []string{"smokepod", "validate", testdataPath("missing-name.yaml")})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -96,7 +97,7 @@ func TestCLI_Validate_Invalid(t *testing.T) {
 func TestCLI_Validate_MissingFile(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "validate", "nonexistent.yaml"})
+	err := app.Run(context.Background(), []string{"smokepod", "validate", "nonexistent.yaml"})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -118,7 +119,7 @@ func TestCLI_Validate_MissingFile(t *testing.T) {
 func TestCLI_Validate_NoArgs(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "validate"})
+	err := app.Run(context.Background(), []string{"smokepod", "validate"})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -136,7 +137,7 @@ func TestCLI_Validate_NoArgs(t *testing.T) {
 func TestCLI_Run_NoArgs(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "run"})
+	err := app.Run(context.Background(), []string{"smokepod", "run"})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -154,7 +155,7 @@ func TestCLI_Run_NoArgs(t *testing.T) {
 func TestCLI_Run_MissingFile(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "run", "nonexistent.yaml"})
+	err := app.Run(context.Background(), []string{"smokepod", "run", "nonexistent.yaml"})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -172,7 +173,7 @@ func TestCLI_Run_MissingFile(t *testing.T) {
 func TestCLI_Run_InvalidConfig(t *testing.T) {
 	app := quietTestApp()
 
-	err := app.Run([]string{"smokepod", "run", testdataPath("missing-name.yaml")})
+	err := app.Run(context.Background(), []string{"smokepod", "run", testdataPath("missing-name.yaml")})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -383,7 +384,7 @@ func TestCLI_RecordCommand_TargetArgFlag(t *testing.T) {
 			app := quietTestApp()
 			// The action will fail because test paths don't exist, but
 			// we verify the flags are accepted without a parse error.
-			err := app.Run(tt.args)
+			err := app.Run(context.Background(), tt.args)
 			if err != nil {
 				exitErr, ok := err.(cli.ExitCoder)
 				if ok && exitErr.ExitCode() == exitConfigError {
@@ -425,7 +426,7 @@ func TestCLI_VerifyCommand_TargetArgFlag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			app := quietTestApp()
-			err := app.Run(tt.args)
+			err := app.Run(context.Background(), tt.args)
 			if err != nil {
 				exitErr, ok := err.(cli.ExitCoder)
 				if ok && (exitErr.ExitCode() == exitConfigError || exitErr.ExitCode() == exitRuntimeError) {
@@ -442,7 +443,7 @@ func TestCLI_VerifyCommand_TargetArgFlag(t *testing.T) {
 func TestCLI_RecordWithoutTargetFlag(t *testing.T) {
 	// Without --target and without file directives, record should produce an error
 	app := quietTestApp()
-	err := app.Run([]string{"smokepod", "record", "--tests", testdataPath(""), "--fixtures", t.TempDir()})
+	err := app.Run(context.Background(), []string{"smokepod", "record", "--tests", testdataPath(""), "--fixtures", t.TempDir()})
 	if err == nil {
 		// The action might not return a top-level error because it prints errors per-file
 		// and continues. This is acceptable behavior.
@@ -457,7 +458,7 @@ func TestCLI_RecordWithoutTargetFlag(t *testing.T) {
 func TestCLI_VerifyWithoutTargetFlag(t *testing.T) {
 	// Without --target and without file directives, verify should produce an error
 	app := quietTestApp()
-	err := app.Run([]string{"smokepod", "verify", "--tests", testdataPath(""), "--fixtures", t.TempDir()})
+	err := app.Run(context.Background(), []string{"smokepod", "verify", "--tests", testdataPath(""), "--fixtures", t.TempDir()})
 	if err == nil {
 		return
 	}
@@ -497,7 +498,7 @@ func TestFixtureFile_BackwardCompat(t *testing.T) {
 func TestCLI_RecordModeFlag(t *testing.T) {
 	// Verify the --mode flag is accepted on record command
 	app := quietTestApp()
-	err := app.Run([]string{"smokepod", "record", "--target", "/bin/bash", "--mode", "shell", "--tests", "tests", "--fixtures", "fixtures"})
+	err := app.Run(context.Background(), []string{"smokepod", "record", "--target", "/bin/bash", "--mode", "shell", "--tests", "tests", "--fixtures", "fixtures"})
 	if err != nil {
 		if strings.Contains(err.Error(), "flag") && strings.Contains(err.Error(), "not defined") {
 			t.Errorf("flag parse error: %v", err)
@@ -526,7 +527,7 @@ func TestCLI_AllowEmptyFlag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			app := quietTestApp()
-			err := app.Run(tt.args)
+			err := app.Run(context.Background(), tt.args)
 			if err != nil {
 				exitErr, ok := err.(cli.ExitCoder)
 				if ok && (exitErr.ExitCode() == exitConfigError || exitErr.ExitCode() == exitRuntimeError) {
@@ -582,7 +583,7 @@ func TestCLI_RecordIndentFlag(t *testing.T) {
 				args = append(args, "--indent", tt.indent)
 			}
 
-			err := app.Run(args)
+			err := app.Run(context.Background(), args)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

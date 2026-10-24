@@ -2,7 +2,7 @@
 set -e
 
 # Keep in sync with .github/workflows/ci.yml
-GOLANGCI_LINT_VERSION="v2.8.0"
+GOLANGCI_LINT_VERSION="v2.15.0"
 
 echo "Running pre-push checks..."
 

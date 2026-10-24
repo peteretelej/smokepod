@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/peteretelej/smokepod/pkg/smokepod"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // writeTestFile creates a .test file with the given content.
@@ -40,7 +41,7 @@ func writeFixture(t *testing.T, dir, name string, sections map[string][]smokepod
 
 func runApp(args ...string) error {
 	app := quietTestApp()
-	return app.Run(args)
+	return app.Run(context.Background(), args)
 }
 
 func exitCode(err error) int {

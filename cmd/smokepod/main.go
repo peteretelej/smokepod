@@ -15,7 +15,7 @@ import (
 
 	"github.com/peteretelej/smokepod/internal/testfile"
 	"github.com/peteretelej/smokepod/pkg/smokepod"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // Exit codes
@@ -27,7 +27,7 @@ const (
 )
 
 func main() {
-	app := &cli.App{
+	cmd := &cli.Command{
 		Name:    "smokepod",
 		Usage:   "Smoke test runner for CLI and containerized applications",
 		Version: smokepod.VersionString(),
@@ -39,7 +39,7 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		os.Exit(exitRuntimeError)
 	}
 }
@@ -194,12 +194,12 @@ func verifyCommand() *cli.Command {
 	}
 }
 
-func runAction(c *cli.Context) error {
-	if c.NArg() < 1 {
+func runAction(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() < 1 {
 		return cli.Exit("Error: config file path required\n  Usage: smokepod run <config.yaml>", exitConfigError)
 	}
 
-	configPath := c.Args().First()
+	configPath := cmd.Args().First()
 
 	// Parse config
 	config, err := smokepod.ParseConfig(configPath)
@@ -213,15 +213,15 @@ func runAction(c *cli.Context) error {
 	// Build options from flags
 	var opts []smokepod.Option
 
-	if c.Bool("fail-fast") {
+	if cmd.Bool("fail-fast") {
 		opts = append(opts, smokepod.OptFailFast(true))
 	}
 
-	if c.Bool("sequential") {
+	if cmd.Bool("sequential") {
 		opts = append(opts, smokepod.OptParallel(false))
 	}
 
-	if timeout := c.Duration("timeout"); timeout > 0 {
+	if timeout := cmd.Duration("timeout"); timeout > 0 {
 		opts = append(opts, smokepod.OptTimeout(timeout))
 	}
 
@@ -229,7 +229,7 @@ func runAction(c *cli.Context) error {
 	opts = append(opts, smokepod.OptBaseDir(configDir(configPath)))
 
 	// Setup context with signal handling
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
@@ -247,7 +247,7 @@ func runAction(c *cli.Context) error {
 
 	// Setup output
 	output := os.Stdout
-	if outputPath := c.String("output"); outputPath != "" {
+	if outputPath := cmd.String("output"); outputPath != "" {
 		f, err := os.Create(outputPath)
 		if err != nil {
 			return cli.Exit(fmt.Sprintf("Error creating output file: %v", err), exitRuntimeError)
@@ -258,7 +258,7 @@ func runAction(c *cli.Context) error {
 
 	// Report results
 	reporter := smokepod.NewReporter(output)
-	reporter.SetPretty(c.Bool("pretty"))
+	reporter.SetPretty(cmd.Bool("pretty"))
 	if err := reporter.Report(result); err != nil {
 		return cli.Exit(fmt.Sprintf("Error writing report: %v", err), exitRuntimeError)
 	}
@@ -270,12 +270,12 @@ func runAction(c *cli.Context) error {
 	return nil
 }
 
-func validateAction(c *cli.Context) error {
-	if c.NArg() < 1 {
+func validateAction(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() < 1 {
 		return cli.Exit("Error: config file path required\n  Usage: smokepod validate <config.yaml>", exitConfigError)
 	}
 
-	configPath := c.Args().First()
+	configPath := cmd.Args().First()
 
 	config, err := smokepod.ParseConfig(configPath)
 	if err != nil {
@@ -297,19 +297,19 @@ func validateAction(c *cli.Context) error {
 	return nil
 }
 
-func recordAction(c *cli.Context) error {
-	cliTarget := c.String("target")
-	cliTargetArgs := c.StringSlice("target-arg")
-	testsPath := c.String("tests")
-	fixturesPath := c.String("fixtures")
-	update := c.Bool("update")
-	timeout := c.Duration("timeout")
-	cliMode := c.String("mode")
-	runFlag := c.String("run")
-	allowEmpty := c.Bool("allow-empty")
+func recordAction(ctx context.Context, cmd *cli.Command) error {
+	cliTarget := cmd.String("target")
+	cliTargetArgs := cmd.StringSlice("target-arg")
+	testsPath := cmd.String("tests")
+	fixturesPath := cmd.String("fixtures")
+	update := cmd.Bool("update")
+	timeout := cmd.Duration("timeout")
+	cliMode := cmd.String("mode")
+	runFlag := cmd.String("run")
+	allowEmpty := cmd.Bool("allow-empty")
 
 	var indent string
-	switch v := c.String("indent"); v {
+	switch v := cmd.String("indent"); v {
 	case "2":
 		indent = "  "
 	case "4":
@@ -345,7 +345,7 @@ func recordAction(c *cli.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if timeout > 0 {
@@ -458,16 +458,16 @@ func recordAction(c *cli.Context) error {
 
 		for _, section := range sections {
 			var commands []smokepod.FixtureCommand
-			for _, cmd := range section.Commands {
-				result, err := targetExec.Exec(ctx, cmd.Cmd)
+			for _, tc := range section.Commands {
+				result, err := targetExec.Exec(ctx, tc.Cmd)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error executing command in %s: %v\n", testFile, err)
 					continue
 				}
 
 				commands = append(commands, smokepod.FixtureCommand{
-					Line:     cmd.Line,
-					Command:  cmd.Cmd,
+					Line:     tc.Line,
+					Command:  tc.Cmd,
 					Stdout:   result.Stdout,
 					Stderr:   result.Stderr,
 					ExitCode: result.ExitCode,
@@ -501,16 +501,16 @@ func recordAction(c *cli.Context) error {
 	return nil
 }
 
-func verifyAction(c *cli.Context) error {
-	cliTarget := c.String("target")
-	cliTargetArgs := c.StringSlice("target-arg")
-	testsPath := c.String("tests")
-	fixturesPath := c.String("fixtures")
-	cliMode := c.String("mode")
-	failFast := c.Bool("fail-fast")
-	timeout := c.Duration("timeout")
-	jsonOutput := c.Bool("json")
-	allowEmpty := c.Bool("allow-empty")
+func verifyAction(ctx context.Context, cmd *cli.Command) error {
+	cliTarget := cmd.String("target")
+	cliTargetArgs := cmd.StringSlice("target-arg")
+	testsPath := cmd.String("tests")
+	fixturesPath := cmd.String("fixtures")
+	cliMode := cmd.String("mode")
+	failFast := cmd.Bool("fail-fast")
+	timeout := cmd.Duration("timeout")
+	jsonOutput := cmd.Bool("json")
+	allowEmpty := cmd.Bool("allow-empty")
 
 	testFiles, err := smokepod.FindTestFiles(testsPath)
 	if err != nil {
@@ -524,7 +524,7 @@ func verifyAction(c *cli.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if timeout > 0 {
@@ -540,11 +540,11 @@ func verifyAction(c *cli.Context) error {
 		cancel()
 	}()
 
-	return runVerify(c, ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput)
+	return runVerify(cmd, ctx, cliTarget, cliTargetArgs, cliMode, testFiles, testsPath, fixturesPath, failFast, jsonOutput)
 }
 
-func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast bool, jsonOutput bool) error {
-	runFlag := c.String("run")
+func runVerify(cmd *cli.Command, ctx context.Context, cliTarget string, cliTargetArgs []string, cliMode string, testFiles []string, testsPath, fixturesPath string, failFast bool, jsonOutput bool) error {
+	runFlag := cmd.String("run")
 
 	var runSections []string
 	if runFlag != "" {
@@ -779,8 +779,8 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 			}
 
 			for i := 0; i < commandCount; i++ {
-				cmd := section.Commands[i]
-				result, err := targetExec.Exec(ctx, cmd.Cmd)
+				tcmd := section.Commands[i]
+				result, err := targetExec.Exec(ctx, tcmd.Cmd)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 					sectionPassed = false
@@ -811,7 +811,7 @@ func runVerify(c *cli.Context, ctx context.Context, cliTarget string, cliTargetA
 					}
 
 					if !section.XFail {
-						reporter.ReportFailure(fmt.Sprintf("%s / %s", section.Name, cmd.Cmd), strings.Join(diffParts, "\n"))
+						reporter.ReportFailure(fmt.Sprintf("%s / %s", section.Name, tcmd.Cmd), strings.Join(diffParts, "\n"))
 					}
 				}
 			}
