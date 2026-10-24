@@ -267,7 +267,7 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 			reporter.ReportSection(fixtureSectionName, "fail")
 			sectionsFailed++
 			sectionsTotal++
-			allSectionResults = append(allSectionResults, SectionResult{Name: fixtureSectionName, Status: "fail"})
+			allSectionResults = append(allSectionResults, SectionResult{Name: fixtureSectionName, Status: "fail", File: testFile})
 			staleFailed = true
 			structuralFailure = true
 			if opts.FailFast {
@@ -294,7 +294,7 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 				reporter.ReportSection(name, "fail")
 				sectionsFailed++
 				sectionsTotal++
-				allSectionResults = append(allSectionResults, SectionResult{Name: name, Status: "fail"})
+				allSectionResults = append(allSectionResults, SectionResult{Name: name, Status: "fail", File: testFile})
 				runMissingFailed = true
 				if opts.FailFast {
 					break
@@ -318,7 +318,7 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 				sectionsFailed++
 				sectionsTotal++
 				structuralFailure = true
-				allSectionResults = append(allSectionResults, SectionResult{Name: section.Name, Status: "fail"})
+				allSectionResults = append(allSectionResults, SectionResult{Name: section.Name, Status: "fail", File: testFile})
 				if opts.FailFast {
 					break
 				}
@@ -336,11 +336,13 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 			}
 
 			changeAdded := false
+			var failedCommands []CommandResult
 			for i := 0; i < commandCount; i++ {
 				tcmd := section.Commands[i]
 				failedRuns := 0
 				var mismatchDiff string
 				var entry ChangeEntry
+				var failedCmd CommandResult
 				for run := 1; run <= repeat; run++ {
 					result, err := targetExec.Exec(ctx, tcmd.Cmd)
 					if err != nil {
@@ -395,6 +397,31 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 									entry.Actual = fmt.Sprintf("exit %d", result.ExitCode)
 								}
 							}
+
+							// Machine contract for graders: the full streams
+							// behind the first divergent field, with the same
+							// stdout -> stderr -> exit precedence as the entry.
+							failedExp, failedAct := expected.Stdout, result.Stdout
+							if stdoutResult.Matched {
+								failedExp, failedAct = expected.Stderr, result.Stderr
+								if stderrResult.Matched {
+									failedExp = fmt.Sprintf("exit %d", expected.ExitCode)
+									failedAct = fmt.Sprintf("exit %d", result.ExitCode)
+								}
+							}
+							failedCmd = CommandResult{
+								Command:        tcmd.Cmd,
+								Line:           tcmd.Line,
+								Expected:       strings.TrimRight(failedExp, "\n"),
+								Actual:         strings.TrimRight(failedAct, "\n"),
+								Error:          mismatchDiff,
+								WhitespaceDiff: stdoutResult.WhitespaceDiff || stderrResult.WhitespaceDiff,
+								Tiers: &FieldTiers{
+									Stdout: matchTier(stdoutResult.Matched),
+									Stderr: matchTier(stderrResult.Matched),
+									Exit:   matchTier(exitMatched),
+								},
+							}
 						}
 					}
 				}
@@ -409,6 +436,7 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 						changeAdded = true
 						changeEntries = append(changeEntries, entry)
 					}
+					failedCommands = append(failedCommands, failedCmd)
 				}
 			}
 
@@ -445,6 +473,8 @@ func Verify(ctx context.Context, opts VerifyOptions) (*Result, error) {
 				Name:        section.Name,
 				Status:      status,
 				XFailReason: section.XFailReason,
+				File:        testFile,
+				Commands:    failedCommands,
 			})
 
 			if (status == "fail" || status == "xpass") && opts.FailFast {

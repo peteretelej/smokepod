@@ -1,0 +1,8 @@
+{
+  "tests": {
+    "app.test": "fdf8e7c3b14b38d9baf5000ece9328f00b8511450ac45fdf1a5be3ee096d9a44"
+  },
+  "fixtures": {
+    "app.fixture.json": "1dd641045709afeaa13913385d002d0bd1feff4e0d9ec573e7edef58ee7174b3"
+  }
+}

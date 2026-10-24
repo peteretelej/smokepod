@@ -1,0 +1,26 @@
+# Smokepod parity grader demo: two test rows, no LLM needed. The echo
+# provider just echoes the candidate path; the python assertion does the
+# grading. Row 1 (reference) passes, row 2 (candidate) fails at parity.
+description: smokepod parity grader demo
+
+prompts:
+  - "{{smokepod_target}}"
+
+providers:
+  - echo
+
+tests:
+  - vars:
+      smokepod_target: ../demo/app.sh
+      smokepod_tests: ../demo/tests
+      smokepod_fixtures: ../demo/fixtures
+    assert:
+      - type: python
+        value: file://smokepod_assert.py
+  - vars:
+      smokepod_target: ../demo/app_candidate.sh
+      smokepod_tests: ../demo/tests
+      smokepod_fixtures: ../demo/fixtures
+    assert:
+      - type: python
+        value: file://smokepod_assert.py

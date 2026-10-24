@@ -1,0 +1,38 @@
+{
+  "source": "tests/app.test",
+  "recorded_with": "./app.sh",
+  "platform": {
+    "os": "linux",
+    "arch": "amd64",
+    "shell_version": ""
+  },
+  "sections": {
+    "greet": [
+      {
+        "line": 4,
+        "command": "\"$SMOKEPOD_TARGET\" greet world",
+        "stdout": "hello, world\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ],
+    "usage": [
+      {
+        "line": 12,
+        "command": "\"$SMOKEPOD_TARGET\" nope",
+        "stdout": "usage: app.sh greet|version [name]\n",
+        "stderr": "",
+        "exit_code": 1
+      }
+    ],
+    "version": [
+      {
+        "line": 8,
+        "command": "\"$SMOKEPOD_TARGET\" version",
+        "stdout": "app 1.0\n",
+        "stderr": "",
+        "exit_code": 0
+      }
+    ]
+  }
+}

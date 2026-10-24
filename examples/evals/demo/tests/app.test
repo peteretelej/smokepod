@@ -1,0 +1,14 @@
+# Commands run through $SMOKEPOD_TARGET, which smokepod sets to the --target
+# binary, so this one test file grades any candidate against the baseline.
+## greet
+$ "$SMOKEPOD_TARGET" greet world
+hello, world
+
+## version
+$ "$SMOKEPOD_TARGET" version
+app 1.0
+
+## usage
+$ "$SMOKEPOD_TARGET" nope
+usage: app.sh greet|version [name]
+[exit:1]

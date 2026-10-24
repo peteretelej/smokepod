@@ -44,7 +44,9 @@ type SectionResult struct {
 	Name        string          `json:"name"`
 	Status      string          `json:"status"` // "pass", "fail", "xfail", "xpass"
 	XFailReason string          `json:"xfail_reason,omitempty"`
-	Commands    []CommandResult `json:"commands"`
+	// File is the .test file the section came from (verify flow only).
+	File     string          `json:"file,omitempty"`
+	Commands []CommandResult `json:"commands"`
 }
 
 // CommandResult contains the result for a single command.
@@ -56,4 +58,29 @@ type CommandResult struct {
 	Passed         bool   `json:"passed"`
 	Error          string `json:"error,omitempty"`           // mismatch details or execution error
 	WhitespaceDiff bool   `json:"whitespace_diff,omitempty"` // true when mismatch is whitespace-only
+	// Tiers describes which comparison fields diverged (verify flow only;
+	// nil otherwise). The verify flow fills Commands only for failed
+	// commands, so a non-nil Tiers always accompanies a mismatch.
+	Tiers *FieldTiers `json:"tiers,omitempty"`
+}
+
+// FieldTiers records the per-field comparison outcome for a failed command
+// in the verify flow: which of stdout, stderr, and the exit code diverged.
+type FieldTiers struct {
+	Stdout string `json:"stdout"`
+	Stderr string `json:"stderr"`
+	Exit   string `json:"exit"`
+}
+
+// Field tier values used in FieldTiers.
+const (
+	tierMatch    = "match"
+	tierMismatch = "mismatch"
+)
+
+func matchTier(matched bool) string {
+	if matched {
+		return tierMatch
+	}
+	return tierMismatch
 }
