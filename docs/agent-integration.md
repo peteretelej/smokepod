@@ -21,59 +21,8 @@ However you wire it up, the rules are the same:
 4. Never re-record (or hand-edit fixtures or the manifest) to make a failure go away.
 
 The [AGENTS.md contract template](#agentsmd-contract-template) below states
-these rules in copy-paste form; the hook and MCP patterns make the tooling
+these rules in copy-paste form; the hook and skill patterns make the tooling
 enforce them.
-
-## MCP server
-
-`smokepod mcp` runs an MCP server over stdio with three tools:
-
-- `record`: run the `.test` commands against a target and write protected fixtures.
-- `check`: verify against the baseline; returns structured per-section pass/fail
-  with the first differing pair per failed section.
-- `update`: with `confirm=false` returns only the proposed old-vs-new diff; with
-  `confirm=true` applies it. The two-step shape is deliberate: an agent can
-  fetch the diff, and only a deliberate second call changes the baseline.
-
-### Claude Code
-
-Project scope (shared with the team, commit `.mcp.json` at the repo root):
-
-```json
-{
-  "mcpServers": {
-    "smokepod": {
-      "command": "npx",
-      "args": ["-y", "smokepod", "mcp"]
-    }
-  }
-}
-```
-
-Or from the command line:
-
-```bash
-claude mcp add smokepod -- npx -y smokepod mcp
-```
-
-### OpenCode
-
-In `opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "smokepod": {
-      "type": "local",
-      "command": ["npx", "-y", "smokepod", "mcp"]
-    }
-  }
-}
-```
-
-If you install smokepod via `go install`, replace the `npx` command with
-`["smokepod", "mcp"]`.
 
 ## Skills
 

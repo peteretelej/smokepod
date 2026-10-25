@@ -82,7 +82,7 @@ code.
 
 - Worked example of the whole loop (including a refactor that passes unit tests
   but fails verify): `examples/agent-refactor/` in the smokepod repo.
-- MCP config, hook recipes, and an AGENTS.md contract template:
+- Hook recipes and an AGENTS.md contract template:
   `docs/agent-integration.md` in the smokepod repo.
 - Full `.test` syntax (normalization, match tiers, directives):
   `docs/reference/test-format.md`.

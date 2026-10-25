@@ -42,7 +42,6 @@ func main() {
 			verifyCommand(),
 			updateCommand(),
 			probeCommand(),
-			mcpCommand(),
 		},
 	}
 
@@ -332,18 +331,6 @@ func probeCommand() *cli.Command {
 		},
 		Action: probeAction,
 	}
-}
-
-func mcpCommand() *cli.Command {
-	return &cli.Command{
-		Name:   "mcp",
-		Usage:  "Run the smokepod MCP server (tools: record, check, update) over stdio",
-		Action: mcpAction,
-	}
-}
-
-func mcpAction(ctx context.Context, cmd *cli.Command) error {
-	return smokepod.ServeMCP(ctx, smokepod.VersionString())
 }
 
 func runAction(ctx context.Context, cmd *cli.Command) error {

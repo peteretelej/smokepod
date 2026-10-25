@@ -154,6 +154,6 @@ rm -rf tests fixtures
 - The guardrail loop: `init` before refactoring, `verify` after every change,
   `update` only with a reviewed diff. Never re-record to make a failure
   disappear.
-- See [docs/agent-integration.md](../../docs/agent-integration.md) for MCP
-  config, hook recipes, and an AGENTS.md contract that wire this loop into
-  Claude Code and OpenCode.
+- See [docs/agent-integration.md](../../docs/agent-integration.md) for the
+  guardrail skill, hook recipes, and an AGENTS.md contract that wire this
+  loop into Claude Code and OpenCode.

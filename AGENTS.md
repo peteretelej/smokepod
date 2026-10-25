@@ -3,8 +3,7 @@
 Characterization tests for CLIs: record what your CLI prints and returns
 today, then make every later change - yours or your agent's - prove nothing
 changed. `init` locks a protected baseline,
-`verify` grades parity, `update` accepts reviewed changes, `mcp` exposes
-the loop to coding agents.
+`verify` grades parity, `update` accepts reviewed changes.
 
 Stack: Go 1.27, urfave/cli v3. The CLI is a thin shell; behavioral flows
 live as package entry points in `pkg/smokepod` and the design rationale
@@ -15,8 +14,8 @@ lives in the docs index.
 - `cmd/smokepod/`: CLI entrypoint (`main.go` wires commands, handlers
   call the extracted flows).
 - `pkg/smokepod/`: the library and command flows. `record.go`,
-  `verify.go`, `update.go`, `scaffold.go`, `mcpserver.go` own the
-  `Record`/`Verify`/`PlanUpdate`/`Init`/`ServeMCP` entry points;
+  `verify.go`, `update.go`, `scaffold.go` own the
+  `Record`/`Verify`/`PlanUpdate`/`Init` entry points;
   `fixture.go`, `manifest.go`, `compare.go`, `result.go` carry the data
   and matching core; `target_*.go` are local/Docker/process targets;
   `runners/` are the CLI and Playwright runners.

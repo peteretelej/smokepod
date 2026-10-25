@@ -69,7 +69,6 @@ smokepod/
 │   ├── verify.go           # Verify flow (Verify)
 │   ├── update.go           # Update planning/application (PlanUpdate, Apply)
 │   ├── scaffold.go         # init flow (Init)
-│   ├── mcpserver.go        # MCP server (smokepod mcp)
 │   ├── fixture.go          # Fixture read/write
 │   ├── manifest.go         # Baseline protection manifest
 │   └── target_*.go         # Local, Docker, and process targets
@@ -83,7 +82,7 @@ smokepod/
 ```
 
 CLI commands stay thin: behavioral flows live as package entry points in
-`pkg/smokepod` (`Record`, `Verify`, `PlanUpdate`/`Apply`, `Init`, `ServeMCP`),
+`pkg/smokepod` (`Record`, `Verify`, `PlanUpdate`/`Apply`, `Init`),
 and command wiring uses urfave/cli v3 (`cli.Command`, `cmd.Run(ctx, os.Args)`).
 Code conventions live in
 [docs/coding-conventions.md](docs/coding-conventions.md). A change that

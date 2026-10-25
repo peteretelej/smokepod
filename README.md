@@ -71,12 +71,6 @@ after you confirm.
   scripts). Refuses in CI; `record` refuses in CI unless `--update`.
 - **`probe`** - corrupts a copy of the baseline and proves verify catches
   it. Run once after `init`.
-- **`mcp`** - runs the loop as MCP tools (`record`, `check`, and a
-  confirmation-gated `update`) over stdio for coding agents:
-
-```bash
-npx smokepod mcp
-```
 
 The rule that makes it work: never re-record just to make a failure
 disappear. Baseline changes belong in reviewed PRs, same as code changes.

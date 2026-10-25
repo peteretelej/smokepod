@@ -16,7 +16,7 @@ dev loop live in [CONTRIBUTING.md](../CONTRIBUTING.md).
 - `cmd/smokepod/main.go` stays a thin shell: command wiring, flags,
   output rendering, exit codes. Behavioral flows live as exported
   entry points in `pkg/smokepod` (`Record`, `Verify`, `PlanUpdate`/
-  `Apply`, `Init`, `ServeMCP`) so the MCP tools and the `verify --json`
+  `Apply`, `Init`) so the GitHub Action and the `verify --json`
   contract share one implementation. Do not add new logic inline in
   command handlers.
 - Command wiring uses urfave/cli v3 idioms: `cli.Command`,
@@ -27,9 +27,9 @@ dev loop live in [CONTRIBUTING.md](../CONTRIBUTING.md).
 ## Protected surfaces
 
 - The fixture JSON format and the manifest are a trust boundary: writes
-  go through the record/update flows only, never ad hoc. Verify and the
-  MCP tools must keep their CI guards (`CI` env refusal for
-  non-updating record, confirmation gate for update).
+  go through the record/update flows only, never ad hoc. Verify keeps
+  its CI guards (`CI` env refusal for non-updating record; update
+  never approves changes in CI).
 - `verify --json` is a machine contract consumed by the eval adapters;
   additive fields only, and graders treat a non-empty `drift[]` as
   failure. See [evals.md](evals.md).

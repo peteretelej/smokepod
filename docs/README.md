@@ -8,7 +8,7 @@ How-to guides:
 - [init.md](init.md): scaffold a test and record its
   baseline with `smokepod init`
 - [agent-integration.md](agent-integration.md): run the
-  guardrail loop with coding agents: MCP config, hook recipes, skills
+  guardrail loop with coding agents: the skill, hook recipes, contract
 - [evals.md](evals.md): use smokepod as a grader in
   promptfoo and Inspect AI evals
 - [sandboxes.md](sandboxes.md): check sandboxed agents

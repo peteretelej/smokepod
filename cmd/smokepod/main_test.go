@@ -29,7 +29,6 @@ func newTestApp() *cli.Command {
 			verifyCommand(),
 			updateCommand(),
 			probeCommand(),
-			mcpCommand(),
 		},
 	}
 }
@@ -572,7 +571,7 @@ func TestCLI_Record_MissingProcessTargetIsConfigError(t *testing.T) {
 
 func TestCLI_Record_CIRefusesWithoutUpdate(t *testing.T) {
 	// In CI, record without --update refuses (exit 3) before touching
-	// fixtures, mirroring the MCP tool's guard.
+	// fixtures, matching the CLI update guard's refusal shape.
 	t.Setenv("CI", "1")
 	tmpDir := t.TempDir()
 	writeTestFile(t, filepath.Join(tmpDir, "tests"), "t.test", "## s\n$ echo hi\nhi\n")
